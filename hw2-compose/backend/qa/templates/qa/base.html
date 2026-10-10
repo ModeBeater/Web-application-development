@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ APP_NAME }}{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0f172a; --panel: #1e293b; --panel-2: #273449; --line: #334155;
+      --ink: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --accent-ink: #082f49;
+      --ok: #4ade80; --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5;
+    }
+    a { color: var(--accent); }
+    header.top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 20px; border-bottom: 1px solid var(--line);
+    }
+    header.top .brand { font-weight: 700; letter-spacing: .02em; color: var(--ink); text-decoration: none; }
+    header.top .meta { color: var(--muted); font-size: .9rem; }
+    main { width: min(760px, calc(100vw - 32px)); margin: 24px auto 48px; }
+    h1 { font-size: 1.6rem; margin: 0 0 6px; }
+    h2 { font-size: 1.1rem; margin: 24px 0 10px; color: var(--muted); font-weight: 600; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .panel { background: var(--panel); border-radius: 14px; padding: 18px; }
+    form.row { display: flex; gap: 10px; flex-wrap: wrap; }
+    input[type=text], textarea {
+      flex: 1 1 240px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--bg); color: var(--ink); font: inherit;
+    }
+    textarea { width: 100%; min-height: 72px; resize: vertical; }
+    button {
+      padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line);
+      background: var(--panel-2); color: var(--ink); font: inherit; cursor: pointer;
+    }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+    button:disabled { opacity: .5; cursor: default; }
+    .list { display: flex; flex-direction: column; gap: 10px; }
+    .q {
+      display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start;
+      background: var(--panel); border-radius: 12px; padding: 12px 14px;
+    }
+    .q.answered { opacity: .5; }
+    .q .text { margin: 0; overflow-wrap: anywhere; }
+    .q .who { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+    .q .answered-tag { color: var(--ok); font-size: .85rem; margin-left: 8px; }
+    .vote {
+      display: flex; flex-direction: column; align-items: center; min-width: 56px;
+      padding: 8px 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2);
+      font-weight: 700; line-height: 1.1;
+    }
+    .vote small { font-weight: 400; color: var(--muted); font-size: .7rem; }
+    .vote.on { border-color: var(--accent); color: var(--accent); }
+    .empty { color: var(--muted); padding: 24px; text-align: center; }
+    .lectures { width: 100%; border-collapse: collapse; }
+    .lectures th, .lectures td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--line); }
+    .lectures th { color: var(--muted); font-weight: 500; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
+    .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+    .pill.open { background: #14532d; color: var(--ok); }
+    .pill.closed { background: #3f2a0a; color: var(--warn); }
+    .status { color: var(--muted); font-size: .85rem; min-height: 1.3em; }
+    .status.error { color: #f87171; }
+    {% block style %}{% endblock %}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">{{ APP_NAME }}</a>
+    <span class="meta">{% block header_meta %}live questions for lectures{% endblock %}</span>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+
+  <script>
+    // Small helper shared by all pages: talk to the JSON API and render questions.
+    const RH = {
+      refreshMs: {{ REFRESH_SECONDS }} * 1000,
+
+      async api(path, options = {}) {
+        const init = { method: options.method || "GET", headers: {} };
+        if (options.body !== undefined) {
+          init.headers["Content-Type"] = "application/json";
+          init.body = JSON.stringify(options.body);
+        }
+        const res = await fetch(path, init);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        return data;
+      },
+
+      // Build the question list. mode: "audience" (upvote buttons) or "screen" (answered toggles).
+      renderQuestions(container, questions, mode) {
+        container.textContent = "";
+        if (!questions.length) {
+          const p = document.createElement("p");
+          p.className = "empty";
+          p.textContent = mode === "screen" ? "No questions yet — scan the code and ask one." : "No questions yet. Be the first!";
+          container.appendChild(p);
+          return;
+        }
+        for (const q of questions) {
+          const card = document.createElement("article");
+          card.className = "q" + (q.is_answered ? " answered" : "");
+
+          const vote = document.createElement("button");
+          vote.className = "vote" + (q.voted ? " on" : "");
+          vote.type = "button";
+          vote.innerHTML = `<span></span><small>${mode === "screen" ? "votes" : (q.voted ? "voted" : "me too")}</small>`;
+          vote.firstChild.textContent = q.votes;
+          if (mode === "audience") {
+            vote.title = q.voted ? "Remove my vote" : "I have the same question";
+            vote.addEventListener("click", () => RH.toggleVote(q.id));
+          } else {
+            vote.disabled = true;
+          }
+
+          const body = document.createElement("div");
+          const text = document.createElement("p");
+          text.className = "text";
+          text.textContent = q.text;
+          const who = document.createElement("div");
+          who.className = "who";
+          who.textContent = `${q.author} · ${new Date(q.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+          if (q.is_answered) {
+            const tag = document.createElement("span");
+            tag.className = "answered-tag";
+            tag.textContent = "answered";
+            who.appendChild(tag);
+          }
+          body.append(text, who);
+
+          if (mode === "screen") {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = q.is_answered ? "Reopen" : "Mark answered";
+            btn.style.marginTop = "8px";
+            btn.addEventListener("click", () => RH.toggleAnswered(q.id));
+            body.appendChild(btn);
+          }
+
+          card.append(vote, body);
+          container.appendChild(card);
+        }
+      },
+
+      async toggleVote(id) {
+        try { await RH.api(`/api/questions/${id}/upvote/`, { method: "POST" }); await RH.refresh(); }
+        catch (e) { RH.setStatus(e.message, true); }
+      },
+
+      async toggleAnswered(id) {
+        try { await RH.api(`/api/questions/${id}/answered/`, { method: "POST" }); await RH.refresh(); }
+        catch (e) { RH.setStatus(e.message, true); }
+      },
+
+      setStatus(message, isError = false) {
+        const el = document.getElementById("status");
+        if (!el) return;
+        el.textContent = message;
+        el.classList.toggle("error", isError);
+      },
+
+      // Poll the API for a lecture and hand the payload to the page.
+      startPolling(code, onData) {
+        RH.refresh = async () => {
+          try {
+            const data = await RH.api(`/api/lectures/${code}/`);
+            onData(data);
+            RH.setStatus(`Updated ${new Date().toLocaleTimeString()} · refreshes every ${RH.refreshMs / 1000}s`);
+          } catch (e) {
+            RH.setStatus(`Cannot reach the API: ${e.message}`, true);
+          }
+        };
+        RH.refresh();
+        setInterval(RH.refresh, RH.refreshMs);
+      },
+    };
+  </script>
+  {% block script %}{% endblock %}
+</body>
+</html>

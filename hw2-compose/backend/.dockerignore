@@ -1,0 +1,27 @@
+# Keep the build context small and keep secrets/junk out of the image
+
+# Version control
+.git
+.gitignore
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local data and secrets (configuration comes from compose.yaml / .env)
+db.sqlite3
+.env
+.env.*
+
+# Not needed inside the image
+Dockerfile
+.dockerignore
+README.md
+
+# IDE / OS files
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,19 @@
+# Secrets: only .env.example is committed
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local databases (the real one lives in the pgdata Docker volume)
+db.sqlite3
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
