@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ APP_NAME }} · API docs</title>
+  <!-- Swagger UI renders /openapi.yaml as interactive documentation ("Try it out" sends real requests). -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0/swagger-ui.css">
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    header.top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 20px; background: #0f172a; color: #e2e8f0; border-bottom: 1px solid #334155;
+    }
+    header.top a { color: #38bdf8; text-decoration: none; }
+    header.top .brand { font-weight: 700; letter-spacing: .02em; color: #e2e8f0; }
+    header.top .meta { color: #94a3b8; font-size: .9rem; }
+    header.top .meta a { margin-left: 14px; }
+    #fallback { display: none; max-width: 760px; margin: 40px auto; padding: 0 16px; line-height: 1.6; color: #1f2937; }
+    #fallback code { background: #f1f5f9; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">{{ APP_NAME }}</a>
+    <span class="meta">
+      REST API v{{ api_version }}
+      <a href="/openapi.yaml">openapi.yaml</a>
+      <a href="/api/">/api/</a>
+    </span>
+  </header>
+
+  <div id="swagger-ui"></div>
+  <div id="fallback">
+    <h2>Swagger UI could not be loaded</h2>
+    <p>The interactive viewer is fetched from a CDN and needs internet access. The documentation itself is
+      still here: the OpenAPI description at <a href="/openapi.yaml"><code>/openapi.yaml</code></a>
+      (import it into Postman via <em>Import</em>) and the Markdown reference in <code>docs/API.md</code>
+      in the repository.</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    if (window.SwaggerUIBundle) {
+      window.ui = SwaggerUIBundle({
+        url: "/openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        displayRequestDuration: true,
+        tryItOutEnabled: true,
+        defaultModelsExpandDepth: 0,
+      });
+    } else {
+      document.getElementById("fallback").style.display = "block";
+    }
+  </script>
+</body>
+</html>

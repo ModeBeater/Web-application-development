@@ -1,0 +1,503 @@
+openapi: 3.0.3
+info:
+  title: Raise Hand API
+  version: "1.0"
+  description: |
+    Live Q&A for lectures: a lecturer starts a **lecture**, the audience scans a QR code,
+    asks **questions** and upvotes the ones they also want answered.
+
+    Two resources with full CRUD (list, get by id, create, update, delete) plus a few
+    action endpoints. All request and response bodies are JSON (`Content-Type: application/json`).
+    There is no authentication yet — every endpoint is open.
+
+    **Addressing lectures.** `{key}` accepts either the numeric id (`12`) or the 6-character
+    join code (`K7PX2M`, case-insensitive). Questions are addressed by numeric id only.
+
+    **Errors.** Every error is `{"error": "<message>"}` with status 400 (bad input),
+    404 (unknown id/code), 405 (method not allowed), 409 (lecture closed) or 503 (database down).
+  contact:
+    name: Course repository
+    url: https://github.com/ModeBeater/Web-application-development
+
+servers:
+  - url: http://localhost:8000
+    description: docker compose up (WEB_PORT=8000)
+
+tags:
+  - name: Service
+    description: Entry point and health check
+  - name: Lectures
+    description: A lecture (or any session) that collects questions from the audience
+  - name: Questions
+    description: Questions asked by the audience, with upvotes
+
+paths:
+  /api/:
+    get:
+      tags: [Service]
+      summary: API root
+      description: Version number and links to the documentation and resources.
+      operationId: apiRoot
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              example:
+                name: Raise Hand API
+                version: "1.0"
+                docs: http://localhost:8000/docs/
+                openapi: http://localhost:8000/openapi.yaml
+                resources:
+                  lectures: http://localhost:8000/api/lectures/
+                  questions: http://localhost:8000/api/questions/
+
+  /health/:
+    get:
+      tags: [Service]
+      summary: Health check
+      description: Runs `SELECT version()` on PostgreSQL. Used by the Docker `HEALTHCHECK`.
+      operationId: health
+      responses:
+        "200":
+          description: Application and database are up
+          content:
+            application/json:
+              example: { status: ok, database: "PostgreSQL 17.6" }
+        "503":
+          description: Database unreachable
+          content:
+            application/json:
+              example: { status: error, database: "connection refused" }
+
+  /api/lectures/:
+    get:
+      tags: [Lectures]
+      summary: List lectures
+      description: All lectures, newest first, each with its number of questions.
+      operationId: listLectures
+      parameters:
+        - name: q
+          in: query
+          description: Case-insensitive search in the title
+          schema: { type: string }
+          example: Flutter
+        - name: is_open
+          in: query
+          description: Only open (`true`) or only closed (`false`) lectures
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, example: 9 }
+                  lectures:
+                    type: array
+                    items: { $ref: "#/components/schemas/Lecture" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+    post:
+      tags: [Lectures]
+      summary: Create a lecture
+      description: A random 6-character join code is generated for the new lecture.
+      operationId: createLecture
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LectureInput" }
+            example: { title: "Flutter 1 · Lecture 09 · State management" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lecture" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/lectures/{key}/:
+    parameters:
+      - $ref: "#/components/parameters/LectureKey"
+    get:
+      tags: [Lectures]
+      summary: Get a lecture by id (or code)
+      description: |
+        The lecture together with its questions, ordered the way the screen shows them:
+        most upvoted first, answered ones at the bottom. Sets the anonymous `voter` cookie
+        so that `voted` flags are per browser.
+      operationId: getLecture
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LectureWithQuestions" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Lectures]
+      summary: Replace a lecture
+      description: Full update — `title` is required; `is_open` defaults to `true` when omitted.
+      operationId: replaceLecture
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LectureInput" }
+            example: { title: "Flutter 1 · Lecture 09 · State management (updated)", is_open: true }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lecture" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Lectures]
+      summary: Update part of a lecture
+      description: Partial update — send only the fields to change (at least one).
+      operationId: updateLecture
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LecturePatch" }
+            example: { is_open: false }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Lecture" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Lectures]
+      summary: Delete a lecture
+      description: Removes the lecture and, by cascade, all its questions and upvotes.
+      operationId: deleteLecture
+      responses:
+        "204": { description: Deleted (empty body) }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/lectures/{key}/toggle/:
+    parameters:
+      - $ref: "#/components/parameters/LectureKey"
+    post:
+      tags: [Lectures]
+      summary: Open / close a lecture
+      description: Flips `is_open`. A closed lecture rejects new questions with 409.
+      operationId: toggleLecture
+      responses:
+        "200":
+          description: New state
+          content:
+            application/json:
+              example: { id: 1, code: KBTU26, is_open: false }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/lectures/{key}/questions/:
+    parameters:
+      - $ref: "#/components/parameters/LectureKey"
+    get:
+      tags: [Questions]
+      summary: List questions of a lecture
+      description: Ordered like the screen — most upvoted first, answered ones last.
+      operationId: listLectureQuestions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, example: 3 }
+                  questions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Question" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Questions]
+      summary: Ask a question (create)
+      description: |
+        Creates a question in the lecture. Optional `voter` identifies the author for
+        upvote purposes (otherwise the `voter` cookie is used or created).
+      operationId: createQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestionInput" }
+            example: { text: "Is EXPOSE enough to publish a port?", author: "Yevgeniy" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The lecture is closed for new questions
+          content:
+            application/json:
+              example: { error: "This lecture is closed for new questions." }
+
+  /api/questions/:
+    get:
+      tags: [Questions]
+      summary: List all questions
+      description: Every question in the database, newest first. Filter and paginate with the query parameters.
+      operationId: listQuestions
+      parameters:
+        - name: lecture
+          in: query
+          description: Only questions of this lecture (id or code)
+          schema: { type: string }
+          example: KBTU26
+        - name: answered
+          in: query
+          description: Only answered (`true`) or only open (`false`) questions
+          schema: { type: boolean }
+        - name: q
+          in: query
+          description: Case-insensitive search in the text
+          schema: { type: string }
+        - name: limit
+          in: query
+          description: Page size (1–500). Without it all matching questions are returned.
+          schema: { type: integer, minimum: 1, maximum: 500 }
+          example: 20
+        - name: offset
+          in: query
+          description: Number of questions to skip
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer, description: Total matches (ignores limit/offset), example: 107 }
+                  limit: { type: integer, nullable: true, example: 20 }
+                  offset: { type: integer, example: 0 }
+                  questions:
+                    type: array
+                    items: { $ref: "#/components/schemas/Question" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/questions/{id}/:
+    parameters:
+      - $ref: "#/components/parameters/QuestionId"
+    get:
+      tags: [Questions]
+      summary: Get a question by id
+      operationId: getQuestion
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Questions]
+      summary: Replace a question
+      description: Full update — `text` is required; `author` defaults to empty (anonymous) and `is_answered` to `false`.
+      operationId: replaceQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestionUpdate" }
+            example: { text: "Is EXPOSE enough to publish a port, or do I need -p?", author: "Yevgeniy", is_answered: false }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Questions]
+      summary: Update part of a question
+      description: Partial update — send only the fields to change (at least one of `text`, `author`, `is_answered`).
+      operationId: updateQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QuestionPatch" }
+            example: { is_answered: true }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Questions]
+      summary: Delete a question
+      description: Removes the question and its upvotes.
+      operationId: deleteQuestion
+      responses:
+        "204": { description: Deleted (empty body) }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/questions/{id}/upvote/:
+    parameters:
+      - $ref: "#/components/parameters/QuestionId"
+    post:
+      tags: [Questions]
+      summary: Toggle an upvote
+      description: |
+        Adds the caller's upvote, or removes it if it already exists. The caller is the
+        `voter` value in the body, else the `voter` cookie (created on first call).
+      operationId: upvoteQuestion
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                voter: { type: string, maxLength: 36, description: Explicit voter id (optional) }
+            example: { voter: "postman-demo" }
+      responses:
+        "200":
+          description: Current vote count and whether this voter has voted
+          content:
+            application/json:
+              example: { id: 5, votes: 4, voted: true }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/questions/{id}/answered/:
+    parameters:
+      - $ref: "#/components/parameters/QuestionId"
+    post:
+      tags: [Questions]
+      summary: Toggle "answered"
+      description: Marks the question as answered, or reopens it when it already is.
+      operationId: toggleAnswered
+      responses:
+        "200":
+          description: New state
+          content:
+            application/json:
+              example: { id: 5, is_answered: true }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  parameters:
+    LectureKey:
+      name: key
+      in: path
+      required: true
+      description: Lecture id (`12`) or join code (`KBTU26`)
+      schema: { type: string }
+      example: KBTU26
+    QuestionId:
+      name: id
+      in: path
+      required: true
+      description: Question id
+      schema: { type: integer }
+      example: 1
+
+  responses:
+    BadRequest:
+      description: Invalid input (missing field, wrong type, too long, bad JSON)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "'title' is required." }
+    NotFound:
+      description: No object with this id/code
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "No lecture with id or code 'NOPE42'." }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+    LectureInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, maxLength: 120, example: "Flutter 1 · Lecture 09 · State management" }
+        is_open: { type: boolean, default: true }
+    LecturePatch:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, maxLength: 120 }
+        is_open: { type: boolean }
+    Lecture:
+      type: object
+      properties:
+        id: { type: integer, example: 1 }
+        title: { type: string, example: "Flutter 1 · Lecture 00 · Course introduction" }
+        code: { type: string, example: KBTU26, description: 6-character join code (read-only) }
+        is_open: { type: boolean, example: true }
+        question_count: { type: integer, example: 3 }
+        created_at: { type: string, format: date-time, example: "2026-09-01T10:00:00+05:00" }
+        join_url: { type: string, format: uri, example: "http://localhost:8000/l/KBTU26/", description: Address encoded in the QR code }
+        screen_url: { type: string, format: uri, example: "http://localhost:8000/l/KBTU26/screen/" }
+    LectureWithQuestions:
+      allOf:
+        - $ref: "#/components/schemas/Lecture"
+        - type: object
+          properties:
+            questions:
+              type: array
+              items: { $ref: "#/components/schemas/Question" }
+
+    QuestionInput:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 500, example: "Is EXPOSE enough to publish a port?" }
+        author: { type: string, maxLength: 40, example: Yevgeniy, description: Empty = Anonymous }
+        voter: { type: string, maxLength: 36, description: Optional explicit voter id }
+    QuestionUpdate:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 500 }
+        author: { type: string, maxLength: 40 }
+        is_answered: { type: boolean, default: false }
+    QuestionPatch:
+      type: object
+      minProperties: 1
+      properties:
+        text: { type: string, maxLength: 500 }
+        author: { type: string, maxLength: 40 }
+        is_answered: { type: boolean }
+    Question:
+      type: object
+      properties:
+        id: { type: integer, example: 5 }
+        lecture_id: { type: integer, example: 1 }
+        lecture_code: { type: string, example: KBTU26 }
+        text: { type: string, example: "Is EXPOSE enough to publish a port?" }
+        author: { type: string, example: Yevgeniy, description: '"Anonymous" when empty' }
+        votes: { type: integer, example: 4 }
+        voted: { type: boolean, example: false, description: Whether the calling voter has upvoted it }
+        is_answered: { type: boolean, example: false }
+        created_at: { type: string, format: date-time, example: "2026-09-01T10:05:00+05:00" }

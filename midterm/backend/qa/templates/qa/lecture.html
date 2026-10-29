@@ -1,0 +1,56 @@
+{% extends "qa/base.html" %}
+
+{% block title %}{{ lecture.title }} · {{ APP_NAME }}{% endblock %}
+{% block header_meta %}code <code>{{ lecture.code }}</code>{% endblock %}
+
+{% block content %}
+  <h1>{{ lecture.title }}</h1>
+  <p class="sub" id="lecture-state">Ask anything. Tap "me too" on questions you also have.</p>
+
+  <div class="panel" id="ask-panel">
+    <form id="ask">
+      <textarea id="text" maxlength="500" placeholder="Your question" required></textarea>
+      <div class="row" style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap">
+        <input type="text" id="author" maxlength="40" placeholder="Your name (optional)">
+        <button class="primary" type="submit">Ask</button>
+      </div>
+    </form>
+    <div class="status" id="status"></div>
+  </div>
+
+  <h2>Questions</h2>
+  <div class="list" id="questions"></div>
+{% endblock %}
+
+{% block script %}
+<script>
+  const code = "{{ lecture.code }}";
+  const list = document.getElementById("questions");
+  const askPanel = document.getElementById("ask-panel");
+  const state = document.getElementById("lecture-state");
+
+  RH.startPolling(code, (data) => {
+    RH.renderQuestions(list, data.questions, "audience");
+    askPanel.hidden = !data.is_open;
+    state.textContent = data.is_open
+      ? 'Ask anything. Tap "me too" on questions you also have.'
+      : "This lecture is closed for new questions.";
+  });
+
+  document.getElementById("ask").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = document.getElementById("text");
+    const author = document.getElementById("author");
+    try {
+      await RH.api(`/api/lectures/${code}/questions/`, {
+        method: "POST",
+        body: { text: text.value, author: author.value },
+      });
+      text.value = "";
+      await RH.refresh();
+    } catch (e) {
+      RH.setStatus(e.message, true);
+    }
+  });
+</script>
+{% endblock %}

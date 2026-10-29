@@ -1,0 +1,60 @@
+{% extends "qa/base.html" %}
+
+{% block style %}
+    .stats { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0 0 12px; color: var(--muted); }
+    .stats strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+{% endblock %}
+
+{% block content %}
+  <h1>Lectures</h1>
+  <p class="sub">Start a lecture, put the screen page on the projector, and let the audience ask questions from their phones.</p>
+
+  <div class="panel">
+    <form class="row" id="new-lecture">
+      <input type="text" id="title" name="title" maxlength="120" placeholder="Lecture title, e.g. Flutter 1 · Lecture 04 · Navigation" required>
+      <button class="primary" type="submit">Start lecture</button>
+    </form>
+    <div class="status" id="status"></div>
+  </div>
+
+  <h2>All lectures</h2>
+  <p class="stats">
+    <span><strong>{{ stats.lectures }}</strong> lectures</span>
+    <span><strong>{{ stats.questions }}</strong> questions</span>
+    <span><strong>{{ stats.answered }}</strong> answered</span>
+    <span><strong>{{ stats.upvotes }}</strong> upvotes</span>
+  </p>
+  {% if lectures %}
+    <table class="lectures">
+      <thead><tr><th>Title</th><th>Code</th><th>Questions</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for lecture in lectures %}
+          <tr>
+            <td><a href="{% url 'qa:lecture' lecture.code %}">{{ lecture.title }}</a></td>
+            <td><code>{{ lecture.code }}</code></td>
+            <td>{{ lecture.question_count }}</td>
+            <td><span class="pill {% if lecture.is_open %}open{% else %}closed{% endif %}">{% if lecture.is_open %}open{% else %}closed{% endif %}</span></td>
+            <td><a href="{% url 'qa:screen' lecture.code %}">screen</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty">No lectures yet.</p>
+  {% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+  document.getElementById("new-lecture").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const title = document.getElementById("title").value;
+    try {
+      const lecture = await RH.api("/api/lectures/", { method: "POST", body: { title } });
+      window.location.href = `/l/${lecture.code}/screen/`;
+    } catch (e) {
+      RH.setStatus(e.message, true);
+    }
+  });
+</script>
+{% endblock %}

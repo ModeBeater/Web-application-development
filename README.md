@@ -6,3 +6,4 @@ Homework submissions. Each homework lives in its own folder; later homeworks are
 | --- | --- | --- | --- |
 | HW1 | [`hw1-docker/`](hw1-docker/) | `main` | Containerize a Django app with Docker |
 | HW2 | [`hw2-compose/`](hw2-compose/) | `hw2` | Multi-container app with Docker Compose: Django + PostgreSQL |
+| Midterm | [`midterm/`](midterm/) | `midterm` | Full REST API (CRUD) + OpenAPI/Swagger docs + Postman collection, Docker Compose |

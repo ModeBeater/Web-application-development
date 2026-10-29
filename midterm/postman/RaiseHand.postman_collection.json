@@ -1,0 +1,1424 @@
+{
+  "info": {
+    "_postman_id": "a01606ea-f9f2-4608-bf74-9c5b9632f33a",
+    "name": "Raise Hand API (midterm)",
+    "description": "Live Q&A for lectures — Django + PostgreSQL in Docker Compose.\n\nRun the folders in order (or the whole collection with the Collection Runner / newman): folder 1 creates a lecture and stores its id/code in collection variables, folder 2 creates, edits and deletes a question in it, folder 3 deletes the lecture, folder 4 shows the error responses.\n\nVariables: baseUrl (default http://localhost:8000), voter (identifies the upvoter), lecture_id / lecture_code / question_id (filled automatically).\n\nDocs: {{baseUrl}}/docs/ (Swagger UI), docs/API.md in the repository.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0 · Service",
+      "description": "Entry point and health check.",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                ""
+              ]
+            },
+            "description": "Runs SELECT version() on the database. The same URL is used by the Docker HEALTHCHECK."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Body is JSON\", () => pm.response.to.be.json);",
+                  "pm.test(\"Database is PostgreSQL\", () => pm.expect(pm.response.json().database).to.include(\"PostgreSQL\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "API root",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                ""
+              ]
+            },
+            "description": "Version number and links to the documentation (/docs/, /openapi.yaml)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Lists both resources\", () => { const r = pm.response.json().resources; pm.expect(r).to.have.keys(\"lectures\", \"questions\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1 · Lectures (CRUD)",
+      "description": "Create → read (by id and by code) → update (PUT and PATCH) → the delete is in folder 3, after the questions.",
+      "item": [
+        {
+          "name": "List lectures",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                ""
+              ]
+            },
+            "description": "All lectures with their question counts. Optional filters: ?q=<title search> and ?is_open=true|false."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Body is JSON\", () => pm.response.to.be.json);",
+                  "pm.test(\"Has count and lectures[]\", () => { const b = pm.response.json(); pm.expect(b.count).to.be.a(\"number\"); pm.expect(b.lectures).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List lectures — filtered",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/?q=Flutter&is_open=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "Flutter"
+                },
+                {
+                  "key": "is_open",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Every result is open and matches the search\", () => { for (const l of pm.response.json().lectures) { pm.expect(l.is_open).to.be.true; pm.expect(l.title.toLowerCase()).to.include(\"flutter\"); } });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create lecture",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                ""
+              ]
+            },
+            "description": "Creates a lecture; the server generates the join code. The id and code are stored in collection variables for the next requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman demo · Midterm defense\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Returns id and a 6-char code\", () => { const b = pm.response.json(); pm.expect(b.id).to.be.a(\"number\"); pm.expect(b.code).to.have.lengthOf(6); pm.expect(b.is_open).to.be.true; });",
+                  "// Remember the new lecture for the following requests",
+                  "pm.collectionVariables.set(\"lecture_id\", pm.response.json().id);",
+                  "pm.collectionVariables.set(\"lecture_code\", pm.response.json().code);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get lecture by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                ""
+              ]
+            },
+            "description": "The same lecture can also be fetched by its code: next request."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Is the lecture we created, with questions[]\", () => { const b = pm.response.json(); pm.expect(b.id).to.eql(Number(pm.collectionVariables.get(\"lecture_id\"))); pm.expect(b.questions).to.be.an(\"array\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get lecture by code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_code}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_code}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Same id as by-id lookup\", () => pm.expect(pm.response.json().id).to.eql(Number(pm.collectionVariables.get(\"lecture_id\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update lecture (PUT — full)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                ""
+              ]
+            },
+            "description": "PUT replaces the whole resource: title is required, is_open defaults to true.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman demo · Midterm defense (renamed)\",\n  \"is_open\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Title replaced, code unchanged\", () => { const b = pm.response.json(); pm.expect(b.title).to.eql(\"Postman demo · Midterm defense (renamed)\"); pm.expect(b.code).to.eql(pm.collectionVariables.get(\"lecture_code\")); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update lecture (PATCH — close it)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                ""
+              ]
+            },
+            "description": "PATCH changes only the given fields.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_open\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Closed, title kept\", () => { const b = pm.response.json(); pm.expect(b.is_open).to.be.false; pm.expect(b.title).to.include(\"renamed\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask on a closed lecture → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "Expected failure: the lecture was closed by the previous PATCH.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Too late?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"Explains why\", () => pm.expect(pm.response.json().error).to.include(\"closed\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Toggle lecture open",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/toggle/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "toggle",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Open again\", () => pm.expect(pm.response.json().is_open).to.be.true);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2 · Questions (CRUD)",
+      "description": "Create → read → update → upvote/answered actions → delete. Uses the lecture created in folder 1.",
+      "item": [
+        {
+          "name": "Create question (ask)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "Creates a question inside the lecture; its id is stored for the next requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Is EXPOSE in the Dockerfile enough to publish a port?\",\n  \"author\": \"Yevgeniy\",\n  \"voter\": \"{{voter}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Belongs to our lecture\", () => { const b = pm.response.json(); pm.expect(b.lecture_id).to.eql(Number(pm.collectionVariables.get(\"lecture_id\"))); pm.expect(b.votes).to.eql(0); });",
+                  "pm.collectionVariables.set(\"question_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List questions of the lecture",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Contains the new question\", () => { const ids = pm.response.json().questions.map(q => q.id); pm.expect(ids).to.include(Number(pm.collectionVariables.get(\"question_id\"))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List all questions (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?limit=5&offset=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Every question in the database (demo data = 100+ rows). Filters: ?lecture=<id|code> ?answered= ?q= ?limit= ?offset=."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Page of 5 with a total count\", () => { const b = pm.response.json(); pm.expect(b.questions.length).to.be.at.most(5); pm.expect(b.count).to.be.at.least(100); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List all questions — filtered by lecture",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?lecture={{lecture_code}}&answered=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "lecture",
+                  "value": "{{lecture_code}}"
+                },
+                {
+                  "key": "answered",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Only our lecture, none answered\", () => { for (const q of pm.response.json().questions) { pm.expect(q.lecture_code).to.eql(pm.collectionVariables.get(\"lecture_code\")); pm.expect(q.is_answered).to.be.false; } });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get question by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Is our question\", () => pm.expect(pm.response.json().id).to.eql(Number(pm.collectionVariables.get(\"question_id\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update question (PUT — full)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Is EXPOSE enough to publish a port, or do I also need -p / ports: in Compose?\",\n  \"author\": \"Yevgeniy\",\n  \"is_answered\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Text replaced\", () => pm.expect(pm.response.json().text).to.include(\"Compose\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update question (PATCH — author only)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"author\": \"Yevgeniy T.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Author changed, text kept\", () => { const b = pm.response.json(); pm.expect(b.author).to.eql(\"Yevgeniy T.\"); pm.expect(b.text).to.include(\"Compose\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upvote question",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/upvote/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                "upvote",
+                ""
+              ]
+            },
+            "description": "The same voter calling again removes the vote (toggle) — next request.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"voter\": \"{{voter}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Vote counted\", () => { const b = pm.response.json(); pm.expect(b.votes).to.eql(1); pm.expect(b.voted).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upvote again (toggles off)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/upvote/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                "upvote",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"voter\": \"{{voter}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Vote removed\", () => { const b = pm.response.json(); pm.expect(b.votes).to.eql(0); pm.expect(b.voted).to.be.false; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mark question answered",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/answered/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                "answered",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Answered\", () => pm.expect(pm.response.json().is_answered).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete question",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));",
+                  "pm.test(\"Empty body\", () => pm.expect(pm.response.text()).to.be.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get deleted question → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{question_id}}",
+                ""
+              ]
+            },
+            "description": "Expected failure: the question no longer exists."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"JSON error\", () => pm.expect(pm.response.json().error).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3 · Delete lecture",
+      "description": "Removes everything the collection created, so it can be run again.",
+      "item": [
+        {
+          "name": "Delete lecture",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                ""
+              ]
+            },
+            "description": "Deletes the demo lecture; its remaining questions and upvotes are removed by cascade."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get deleted lecture → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"JSON error mentions the id\", () => pm.expect(pm.response.json().error).to.include(pm.collectionVariables.get(\"lecture_id\")));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 · Validation & errors",
+      "description": "Requests that are supposed to fail, to show the error format.",
+      "item": [
+        {
+          "name": "Create lecture without title → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Names the missing field\", () => pm.expect(pm.response.json().error).to.include(\"title\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create lecture with wrong type → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Typed wrong\",\n  \"is_open\": \"yes\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Explains the boolean\", () => pm.expect(pm.response.json().error).to.include(\"true or false\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown lecture → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/NOPE42/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "NOPE42",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wrong method → 405",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                ""
+              ]
+            },
+            "description": "The collection endpoint only supports GET and POST."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 405\", () => pm.response.to.have.status(405));",
+                  "pm.test(\"Allow header lists GET, POST\", () => pm.expect(pm.response.headers.get(\"Allow\")).to.include(\"GET\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad pagination → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?limit=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "voter",
+      "value": "postman-demo",
+      "type": "string"
+    },
+    {
+      "key": "lecture_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lecture_code",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "question_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Runs before every request: nothing to prepare, the API needs no auth yet."
+        ]
+      }
+    }
+  ]
+}
