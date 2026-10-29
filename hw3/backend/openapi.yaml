@@ -1,0 +1,907 @@
+openapi: 3.0.3
+info:
+  title: Raise Hand API
+  version: '2.0'
+  description: |-
+    Live Q&A for lectures: a lecturer starts a **lecture**, the audience scans a QR code, asks **questions** and upvotes the ones they also want answered.
+
+    Built with Django REST Framework: serializers validate input, viewsets implement list / retrieve / create / update / delete, django-filter and DRF filters add `?is_open=`, `?search=`, `?ordering=`, and every list is paginated with `?limit=&offset=`.
+
+    A lecture can be addressed by its numeric id or its 6-character join code.
+  contact:
+    name: Course repository
+    url: https://github.com/ModeBeater/Web-application-development
+paths:
+  /api/:
+    get:
+      operationId: api_root
+      description: Version number and links to everything.
+      summary: API root
+      tags:
+      - service
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRoot'
+          description: ''
+  /api/lectures/:
+    get:
+      operationId: lectures_list
+      description: Newest first, each with its number of questions.
+      summary: List lectures
+      parameters:
+      - in: query
+        name: is_open
+        schema:
+          type: boolean
+        description: Only open (true) or only closed (false) lectures
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - lectures
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLectureList'
+          description: ''
+    post:
+      operationId: lectures_create
+      description: A random 6-character join code is generated.
+      summary: Create a lecture
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+          description: ''
+  /api/lectures/{key}/:
+    get:
+      operationId: lectures_retrieve
+      description: The lecture with its questions in screen order (most upvoted first,
+        answered last). Sets the anonymous `voter` cookie so that `voted` flags are
+        per browser.
+      summary: Get a lecture by id or code
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LectureDetail'
+          description: ''
+    put:
+      operationId: lectures_update
+      description: CRUD for lectures. The router maps list/create/retrieve/update/partial_update/destroy
+        to URLs.
+      summary: Replace a lecture (PUT)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+          description: ''
+    patch:
+      operationId: lectures_partial_update
+      description: CRUD for lectures. The router maps list/create/retrieve/update/partial_update/destroy
+        to URLs.
+      summary: Update part of a lecture (PATCH)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLectureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLectureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLectureRequest'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+          description: ''
+    delete:
+      operationId: lectures_destroy
+      description: Its questions and upvotes are removed by cascade.
+      summary: Delete a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/lectures/{key}/questions/:
+    get:
+      operationId: lectures_questions_list
+      description: 'Ordered like the screen: most upvoted first, answered ones last.
+        Paginated.'
+      summary: List questions of a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - lectures
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestionList'
+          description: ''
+    post:
+      operationId: lectures_questions_create
+      description: Creates a question in the lecture. 409 if the lecture is closed.
+      summary: Ask a question (create)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+  /api/lectures/{key}/toggle/:
+    post:
+      operationId: lectures_toggle_create
+      description: Flips `is_open`. A closed lecture rejects new questions with 409.
+      summary: Open / close a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToggleResult'
+          description: ''
+  /api/questions/:
+    get:
+      operationId: questions_list
+      description: Every question in the database, newest first. Filter with `?lecture=`,
+        `?is_answered=`, `?search=`, sort with `?ordering=votes|-votes|created_at`,
+        page with `?limit=&offset=`.
+      summary: List all questions
+      parameters:
+      - in: query
+        name: is_answered
+        schema:
+          type: boolean
+        description: Only answered (true) or only open (false) questions
+      - in: query
+        name: lecture
+        schema:
+          type: string
+        description: Lecture id or join code
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - questions
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestionList'
+          description: ''
+  /api/questions/{id}/:
+    get:
+      operationId: questions_retrieve
+      description: 'Read / update / delete questions. They are created inside a lecture:
+        POST /api/lectures/{key}/questions/.'
+      summary: Get a question by id
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+    put:
+      operationId: questions_update
+      description: 'Read / update / delete questions. They are created inside a lecture:
+        POST /api/lectures/{key}/questions/.'
+      summary: Replace a question (PUT)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+    patch:
+      operationId: questions_partial_update
+      description: 'Read / update / delete questions. They are created inside a lecture:
+        POST /api/lectures/{key}/questions/.'
+      summary: Update part of a question (PATCH)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedQuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedQuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedQuestionRequest'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+    delete:
+      operationId: questions_destroy
+      description: Its upvotes are removed by cascade.
+      summary: Delete a question
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/questions/{id}/answered/:
+    post:
+      operationId: questions_answered_create
+      description: Marks the question as answered, or reopens it when it already is.
+      summary: Toggle "answered"
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnsweredResult'
+          description: ''
+  /api/questions/{id}/upvote/:
+    post:
+      operationId: questions_upvote_create
+      description: Adds the caller's upvote, or removes it if it already exists. The
+        caller is the `voter` value in the body, else the `voter` cookie (created
+        on first call).
+      summary: Toggle an upvote
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpvoteRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UpvoteRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpvoteRequestRequest'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpvoteResult'
+          description: ''
+  /health/:
+    get:
+      operationId: health
+      description: Runs `SELECT version()` on PostgreSQL. Used by the Docker `HEALTHCHECK`.
+      summary: Health check
+      tags:
+      - service
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+components:
+  schemas:
+    AnsweredResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        is_answered:
+          type: boolean
+      required:
+      - id
+      - is_answered
+    ApiRoot:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        docs:
+          type: string
+          format: uri
+        schema:
+          type: string
+          format: uri
+        health:
+          type: string
+          format: uri
+        lectures:
+          type: string
+          format: uri
+        questions:
+          type: string
+          format: uri
+      required:
+      - docs
+      - health
+      - lectures
+      - name
+      - questions
+      - schema
+      - version
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+        database:
+          type: string
+      required:
+      - database
+      - status
+    Lecture:
+      type: object
+      description: A lecture as the API shows it. `code`, `created_at` and the URLs
+        are read-only.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 3–120 characters
+          maxLength: 120
+        code:
+          type: string
+          readOnly: true
+          description: 6-character join code generated by the server
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+        question_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        join_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Address encoded in the QR code
+        screen_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Projector page
+      required:
+      - code
+      - created_at
+      - id
+      - join_url
+      - question_count
+      - screen_url
+      - title
+    LectureDetail:
+      type: object
+      description: 'GET /api/lectures/{key}/: the lecture plus its questions in screen
+        order.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 3–120 characters
+          maxLength: 120
+        code:
+          type: string
+          readOnly: true
+          description: 6-character join code generated by the server
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+        question_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        join_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Address encoded in the QR code
+        screen_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Projector page
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+          readOnly: true
+      required:
+      - code
+      - created_at
+      - id
+      - join_url
+      - question_count
+      - questions
+      - screen_url
+      - title
+    LectureRequest:
+      type: object
+      description: A lecture as the API shows it. `code`, `created_at` and the URLs
+        are read-only.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters
+          maxLength: 120
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+      required:
+      - title
+    PaginatedLectureList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lecture'
+    PaginatedQuestionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+    PatchedLectureRequest:
+      type: object
+      description: A lecture as the API shows it. `code`, `created_at` and the URLs
+        are read-only.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters
+          maxLength: 120
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+    PatchedQuestionRequest:
+      type: object
+      description: A question with its vote count. `voter` is write-only and optional
+        (see voters.py).
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 1–500 characters
+          maxLength: 500
+        author:
+          type: string
+          default: ''
+          description: Empty = Anonymous
+          maxLength: 40
+        is_answered:
+          type: boolean
+        voter:
+          type: string
+          writeOnly: true
+          description: Optional explicit voter id; otherwise the `voter` cookie is
+            used (and created)
+          maxLength: 36
+    Question:
+      type: object
+      description: A question with its vote count. `voter` is write-only and optional
+        (see voters.py).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lecture_id:
+          type: integer
+          readOnly: true
+        lecture_code:
+          type: string
+          readOnly: true
+        text:
+          type: string
+          description: 1–500 characters
+          maxLength: 500
+        author:
+          type: string
+          default: ''
+          description: Empty = Anonymous
+          maxLength: 40
+        votes:
+          type: integer
+          readOnly: true
+          default: 0
+          description: Number of upvotes
+        voted:
+          type: boolean
+          readOnly: true
+          default: false
+          description: Whether the calling voter has upvoted it
+        is_answered:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - lecture_code
+      - lecture_id
+      - text
+      - voted
+      - votes
+    QuestionRequest:
+      type: object
+      description: A question with its vote count. `voter` is write-only and optional
+        (see voters.py).
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 1–500 characters
+          maxLength: 500
+        author:
+          type: string
+          default: ''
+          description: Empty = Anonymous
+          maxLength: 40
+        is_answered:
+          type: boolean
+        voter:
+          type: string
+          writeOnly: true
+          description: Optional explicit voter id; otherwise the `voter` cookie is
+            used (and created)
+          maxLength: 36
+      required:
+      - text
+    ToggleResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        is_open:
+          type: boolean
+      required:
+      - code
+      - id
+      - is_open
+    UpvoteRequestRequest:
+      type: object
+      properties:
+        voter:
+          type: string
+          maxLength: 36
+    UpvoteResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        votes:
+          type: integer
+        voted:
+          type: boolean
+      required:
+      - id
+      - voted
+      - votes
+tags:
+- name: lectures
+  description: A lecture (or any session) that collects questions from the audience
+- name: questions
+  description: Questions asked by the audience, with upvotes
+- name: service
+  description: Health check and API root

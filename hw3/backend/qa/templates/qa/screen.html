@@ -1,0 +1,64 @@
+{% extends "qa/base.html" %}
+
+{% block title %}Screen · {{ lecture.title }}{% endblock %}
+{% block header_meta %}<a href="{% url 'qa:lecture' lecture.code %}">audience page</a>{% endblock %}
+
+{% block style %}
+    main { width: min(1100px, calc(100vw - 32px)); }
+    .screen { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+    @media (max-width: 760px) { .screen { grid-template-columns: 1fr; } }
+    .join { text-align: center; }
+    .join .qr { background: #fff; border-radius: 14px; padding: 12px; }
+    .join .qr svg { display: block; width: 100%; height: auto; aspect-ratio: 1; }
+    .join .code { font-size: 2rem; font-weight: 800; letter-spacing: .12em; margin: 12px 0 2px; }
+    .join .url { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+    .join .hint { color: var(--warn); font-size: .8rem; margin-top: 10px; }
+    .join .via { color: var(--ok); font-size: .8rem; margin-top: 10px; }
+    .q .text { font-size: 1.25rem; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 18px; align-items: center; }
+{% endblock %}
+
+{% block content %}
+  <h1>{{ lecture.title }}</h1>
+  <div class="controls">
+    <span class="pill open" id="state-pill">open</span>
+    <button type="button" id="toggle">Close questions</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="screen">
+    <div class="list" id="questions"></div>
+
+    <aside class="join panel">
+      <div class="qr">{{ qr_svg|safe }}</div>
+      <div class="code">{{ lecture.code }}</div>
+      <div class="url">{{ join_url }}</div>
+      {% if join_source == "tunnel" %}
+        <div class="via">via Cloudflare tunnel · works from any network</div>
+      {% elif local_only %}
+        <div class="hint">This address works only on this computer. Start the tunnel (docker compose --profile tunnel up -d) or set PUBLIC_URL in .env to your LAN address.</div>
+      {% endif %}
+    </aside>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  const code = "{{ lecture.code }}";
+  const list = document.getElementById("questions");
+  const pill = document.getElementById("state-pill");
+  const toggle = document.getElementById("toggle");
+
+  RH.startPolling(code, (data) => {
+    RH.renderQuestions(list, data.questions, "screen");
+    pill.textContent = data.is_open ? "open" : "closed";
+    pill.className = "pill " + (data.is_open ? "open" : "closed");
+    toggle.textContent = data.is_open ? "Close questions" : "Reopen questions";
+  });
+
+  toggle.addEventListener("click", async () => {
+    try { await RH.api(`/api/lectures/${code}/toggle/`, { method: "POST" }); await RH.refresh(); }
+    catch (e) { RH.setStatus(e.message, true); }
+  });
+</script>
+{% endblock %}

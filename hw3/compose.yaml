@@ -1,0 +1,75 @@
+# Raise Hand (HW3) — multi-container setup: Django REST Framework backend + PostgreSQL.
+# Start everything with:  docker compose up --build
+# Configuration comes from .env (copy .env.example and change the secrets).
+
+# Project name: prefixes the containers, network and volume (raisehand-hw3_pgdata),
+# so this stack does not collide with the hw2-compose one on the same machine.
+name: raisehand-hw3
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      # ${VAR} is interpolated by Compose from the .env file next to this compose.yaml.
+      # The image creates this role and database on the first start of an empty volume.
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Named volume: data survives `docker compose down` and container recreation
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Optional, bound to localhost only: lets psql / DataGrip on the host inspect the data.
+      - "127.0.0.1:${DB_PORT_HOST:-5433}:5432"
+    healthcheck:
+      # $$ escapes the dollar so the variables are expanded inside the container, not by Compose
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
+
+  web:
+    build: ./backend
+    image: raisehand-hw3-web
+    restart: unless-stopped
+    # The whole .env goes into the container as environment variables
+    env_file: .env
+    environment:
+      # The database is reached by its service name on the shared network
+      DB_HOST: db
+      DB_PORT: "5432"
+    ports:
+      # host:container — the host port is configurable, the container port is fixed
+      - "${WEB_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy   # start only after pg_isready succeeds
+    networks:
+      - backend
+
+  tunnel:
+    # Optional: a public HTTPS address so phones on ANY network (mobile data, other Wi-Fi)
+    # can scan the QR code. Not started by default (profile):
+    #   docker compose --profile tunnel up -d
+    #   docker compose logs tunnel | grep trycloudflare.com      -> the public URL
+    image: cloudflare/cloudflared:2026.10.0
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    # cloudflared reaches the backend by its service name on the shared network.
+    # --metrics exposes GET /quicktunnel inside the network; the backend reads the
+    # public hostname from it, so the QR code switches to the tunnel automatically.
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://web:8000
+    depends_on:
+      - web
+    networks:
+      - backend
+
+volumes:
+  pgdata:
+
+networks:
+  backend:
