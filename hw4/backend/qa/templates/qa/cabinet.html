@@ -1,0 +1,192 @@
+{% extends "qa/base.html" %}
+
+{% block title %}Personal cabinet · {{ APP_NAME }}{% endblock %}
+
+{% block content %}
+  <div class="card profile-head" id="profile-head">
+    <span class="avatar" id="avatar">…</span>
+    <div style="flex:1">
+      <h1 id="display-name">&nbsp;</h1>
+      <div class="muted" id="handle"></div>
+    </div>
+    <a class="btn hidden" id="users-link" href="/users/">Manage users</a>
+  </div>
+
+  <div class="tiles" id="tiles">
+    <div class="tile"><div class="num" data-stat="lectures">–</div><div class="label">my lectures</div></div>
+    <div class="tile"><div class="num" data-stat="questions">–</div><div class="label">my questions</div></div>
+    <div class="tile"><div class="num" data-stat="upvotes_given">–</div><div class="label">upvotes given</div></div>
+    <div class="tile"><div class="num" data-stat="upvotes_received">–</div><div class="label">upvotes received</div></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="active" data-tab="lectures" type="button">My lectures</button>
+    <button data-tab="questions" type="button">My questions</button>
+    <button data-tab="profile" type="button">Profile</button>
+    <button data-tab="security" type="button">Security</button>
+    <button data-tab="session" type="button">Session</button>
+  </div>
+
+  <section class="tab-panel active" data-panel="lectures">
+    <div class="card hidden" id="new-lecture-card" style="margin-bottom:14px">
+      <form id="new-lecture" class="row">
+        <div class="field" style="margin:0"><input type="text" name="title" maxlength="120" placeholder="New lecture title" required></div>
+        <button class="primary fixed" type="submit">Start lecture</button>
+      </form>
+    </div>
+    <p class="muted small hidden" id="not-lecturer">Only lecturers run lectures. Your account is a student account — an admin can change the role.</p>
+    <div class="grid" id="my-lectures"></div>
+  </section>
+
+  <section class="tab-panel" data-panel="questions">
+    <div class="list" id="my-questions"></div>
+  </section>
+
+  <section class="tab-panel" data-panel="profile">
+    <div class="card">
+      <form id="profile-form" novalidate>
+        <div class="row">
+          <div class="field"><label for="first_name">First name</label><input type="text" id="first_name" name="first_name"></div>
+          <div class="field"><label for="last_name">Last name</label><input type="text" id="last_name" name="last_name"></div>
+        </div>
+        <div class="field"><label for="email">Email</label><input type="email" id="email" name="email"></div>
+        <dl class="kv" style="margin:0 0 16px">
+          <dt>Username</dt><dd id="kv-username"></dd>
+          <dt>Role</dt><dd id="kv-role"></dd>
+          <dt>Member since</dt><dd id="kv-joined"></dd>
+          <dt>Last login</dt><dd id="kv-login"></dd>
+        </dl>
+        <button class="primary" type="submit">Save profile</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="security">
+    <div class="card">
+      <h3>Change password</h3>
+      <form id="password-form" novalidate>
+        <div class="field"><label for="current_password">Current password</label><input type="password" id="current_password" name="current_password" autocomplete="current-password" required></div>
+        <div class="field"><label for="new_password">New password</label><input type="password" id="new_password" name="new_password" autocomplete="new-password" required minlength="8"><div class="help">At least 8 characters, not only digits, not too common.</div></div>
+        <button class="primary" type="submit">Update password</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="tab-panel" data-panel="session">
+    <div class="card">
+      <h3>Tokens</h3>
+      <p class="muted small">The browser keeps two JWTs. The <strong>access</strong> token is sent with every request and lives 15 minutes; when it expires the client exchanges the <strong>refresh</strong> token for a new pair (rotation — the old refresh token is revoked).</p>
+      <dl class="kv">
+        <dt>Access expires</dt><dd id="kv-access-exp"></dd>
+        <dt>Role claim</dt><dd id="kv-claim-role"></dd>
+        <dt>User id claim</dt><dd id="kv-claim-uid"></dd>
+      </dl>
+      <div class="row" style="margin-top:16px">
+        <button class="fixed" type="button" id="refresh-now">Refresh tokens now</button>
+        <button class="fixed danger" type="button" id="sign-out">Sign out</button>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block script %}
+<script>
+  if (RH.requireAuth()) {
+    let me = RH.user();
+
+    function renderHead(u) {
+      document.getElementById("avatar").textContent = RH.initials(u);
+      document.getElementById("display-name").textContent = u.display_name;
+      const handle = document.getElementById("handle"); handle.textContent = `@${u.username} · `; handle.append(RH.rolePill(u.role));
+      document.getElementById("users-link").classList.toggle("hidden", u.role !== "admin");
+      for (const [k, v] of Object.entries(u.stats || {})) { const el = document.querySelector(`[data-stat="${k}"]`); if (el) el.textContent = v; }
+      document.getElementById("first_name").value = u.first_name || "";
+      document.getElementById("last_name").value = u.last_name || "";
+      document.getElementById("email").value = u.email || "";
+      document.getElementById("kv-username").textContent = u.username;
+      document.getElementById("kv-role").textContent = u.role;
+      document.getElementById("kv-joined").textContent = RH.fmtDate(u.date_joined);
+      document.getElementById("kv-login").textContent = u.last_login ? RH.fmtDateTime(u.last_login) : "—";
+      const lecturer = u.role === "lecturer" || u.role === "admin";
+      document.getElementById("new-lecture-card").classList.toggle("hidden", !lecturer);
+      document.getElementById("not-lecturer").classList.toggle("hidden", lecturer);
+    }
+
+    function renderSession() {
+      const c = RH.tokenClaims();
+      document.getElementById("kv-access-exp").textContent = c ? RH.fmtDateTime(new Date(c.exp * 1000).toISOString()) : "—";
+      document.getElementById("kv-claim-role").textContent = c ? c.role : "—";
+      document.getElementById("kv-claim-uid").textContent = c ? c.user_id : "—";
+    }
+
+    async function loadLectures() {
+      const grid = document.getElementById("my-lectures"); grid.textContent = "";
+      const data = await RH.api("/api/lectures/?owner=me&limit=50");
+      if (!data.results.length) { grid.append(RH.el("div", { class: "empty", style: "grid-column:1/-1" }, RH.el("div", { class: "big" }, "🎤"), "No lectures yet.")); return; }
+      for (const l of data.results) {
+        grid.append(RH.el("article", { class: "card lecture-card" },
+          RH.el("div", { class: "row", style: "justify-content:space-between" },
+            RH.el("span", { class: "code fixed" }, l.code),
+            RH.el("span", { class: `pill fixed ${l.is_open ? "open" : "closed"}` }, l.is_open ? "open" : "closed")),
+          RH.el("div", { class: "title" }, l.title),
+          RH.el("div", { class: "meta" }, `${l.question_count} questions · ${RH.fmtDate(l.created_at)}`),
+          RH.el("div", { class: "actions" },
+            RH.el("a", { class: "btn sm", href: `/l/${l.code}/screen/` }, "Screen"),
+            RH.el("a", { class: "btn sm ghost", href: `/l/${l.code}/` }, "Audience"),
+            RH.el("button", { class: "sm ghost", type: "button", onclick: async () => { try { await RH.api(`/api/lectures/${l.id}/toggle/`, { method: "POST" }); await loadLectures(); } catch (e) { RH.toast(e.message, "error"); } } }, l.is_open ? "Close" : "Reopen"),
+            RH.el("button", { class: "sm danger ghost", type: "button", onclick: async () => {
+              if (!(await RH.confirm(`Delete "${l.title}"?`))) return;
+              try { await RH.api(`/api/lectures/${l.id}/`, { method: "DELETE" }); RH.toast("Lecture deleted"); await Promise.all([loadLectures(), reload()]); } catch (e) { RH.toast(e.message, "error"); }
+            } }, "Delete"))));
+      }
+    }
+
+    async function loadQuestions() {
+      const list = document.getElementById("my-questions");
+      const data = await RH.api("/api/questions/?author=me&limit=100");
+      RH.renderQuestions(list, data.results, { mode: "list", onChange: async () => { await Promise.all([loadQuestions(), reload()]); } });
+    }
+
+    async function reload() { me = await RH.reloadUser(); renderHead(me); }
+
+    document.getElementById("tabs").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      document.querySelectorAll("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
+      document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === b.dataset.tab));
+    });
+
+    document.getElementById("new-lecture").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try { const l = await RH.api("/api/lectures/", { method: "POST", body: { title: e.target.title.value } }); RH.toast(`Lecture ${l.code} created`, "ok"); e.target.reset(); await Promise.all([loadLectures(), reload()]); }
+      catch (err) { RH.toast(err.message, "error"); }
+    });
+
+    document.getElementById("profile-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      try {
+        await RH.api("/api/auth/me/", { method: "PATCH", body: { first_name: form.first_name.value, last_name: form.last_name.value, email: form.email.value } });
+        RH.showFieldErrors(form, {}); RH.toast("Profile saved", "ok"); await reload();
+      } catch (err) { if (!RH.showFieldErrors(form, err.data)) RH.toast(err.message, "error"); }
+    });
+
+    document.getElementById("password-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      try {
+        const data = await RH.api("/api/auth/me/password/", { method: "POST", body: { current_password: form.current_password.value, new_password: form.new_password.value } });
+        RH.saveSession(data); RH.showFieldErrors(form, {}); form.reset(); RH.toast("Password updated — new tokens issued", "ok"); renderSession();
+      } catch (err) { if (!RH.showFieldErrors(form, err.data)) RH.toast(err.message, "error"); }
+    });
+
+    document.getElementById("refresh-now").addEventListener("click", async () => {
+      const ok = await RH.refreshTokens();
+      if (ok) { RH.toast("New access and refresh tokens received", "ok"); renderSession(); } else { RH.toast("Refresh token rejected — please sign in again", "error"); location.href = "/login/?next=/me/"; }
+    });
+    document.getElementById("sign-out").addEventListener("click", async () => { await RH.logout(); location.href = "/"; });
+
+    renderHead(me); renderSession();
+    reload().then(() => Promise.all([loadLectures(), loadQuestions()])).catch((e) => RH.toast(e.message, "error"));
+  }
+</script>
+{% endblock %}

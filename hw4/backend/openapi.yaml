@@ -1,0 +1,1626 @@
+openapi: 3.0.3
+info:
+  title: Raise Hand API
+  version: '3.0'
+  description: |-
+    Live Q&A for lectures: a lecturer starts a **lecture**, the audience scans a QR code, asks **questions** and upvotes the ones they also want answered.
+
+    Built with Django REST Framework: serializers validate input, viewsets implement list / retrieve / create / update / delete, django-filter and DRF filters add `?is_open=`, `?search=`, `?ordering=`, and every list is paginated with `?limit=&offset=`.
+
+    **Authentication**: JWT. `POST /api/auth/login/` returns an `access` token (15 min) and a `refresh` token (7 days). Send `Authorization: Bearer <access>`; when it expires, `POST /api/auth/refresh/` with the refresh token returns a new pair (the old refresh token is revoked). Reading is public; writing needs a user. **Roles**: `student` asks and upvotes, `lecturer` also creates and manages own lectures, `admin` manages everything and the users.
+
+    A lecture can be addressed by its numeric id or its 6-character join code.
+  contact:
+    name: Course repository
+    url: https://github.com/ModeBeater/Web-application-development
+paths:
+  /api/:
+    get:
+      operationId: api_root
+      description: Version number and links to everything.
+      summary: API root
+      tags:
+      - service
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRoot'
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: 'Username + password → `access` (15 min) and `refresh` (7 days)
+        tokens plus the user profile. Send `Authorization: Bearer <access>` with every
+        request.'
+      summary: Login
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+        '401':
+          description: Wrong username or password
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: Revokes the given refresh token (adds it to the blacklist). The
+        access token stays valid until it expires, which is why access tokens are
+        short-lived.
+      summary: Logout
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '205':
+          description: Refresh token revoked
+        '400':
+          description: Invalid token
+  /api/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      description: The signed-in user with activity counters.
+      summary: My profile
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: auth_me_partial_update
+      description: Change first/last name or email.
+      summary: Edit my profile
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/auth/me/password/:
+    post:
+      operationId: auth_me_password_create
+      description: Checks the current password, applies the validators to the new
+        one and returns a fresh token pair.
+      summary: Change my password
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordChangeRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+  /api/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: Exchanges a refresh token for a new access **and** refresh token.
+        The old refresh token is blacklisted (rotation), so each refresh token can
+        be used once.
+      summary: Refresh tokens
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RefreshRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RefreshRequestRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+        '401':
+          description: Token is invalid, expired or revoked
+  /api/auth/register/:
+    post:
+      operationId: auth_register_create
+      description: 'Creates a student or lecturer account and signs it in: the response
+        carries a token pair.'
+      summary: Register
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+          description: ''
+        '400':
+          description: Validation errors per field
+  /api/lectures/:
+    get:
+      operationId: lectures_list
+      description: Newest first, each with its owner and number of questions. `?owner=me`
+        for mine.
+      summary: List lectures
+      parameters:
+      - in: query
+        name: is_open
+        schema:
+          type: boolean
+        description: Only open (true) or only closed (false) lectures
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: query
+        name: owner
+        schema:
+          type: string
+        description: Owner user id, or `me`
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLectureList'
+          description: ''
+    post:
+      operationId: lectures_create
+      description: Lecturers and admins only. The caller becomes the owner; a random
+        join code is generated.
+      summary: Create a lecture
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+          description: ''
+        '401':
+          description: No or invalid access token
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/lectures/{key}/:
+    get:
+      operationId: lectures_retrieve
+      description: The lecture with its questions in screen order (most upvoted first,
+        answered last).
+      summary: Get a lecture by id or code
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LectureDetail'
+          description: ''
+    put:
+      operationId: lectures_update
+      description: CRUD for lectures. The router maps list/create/retrieve/update/partial_update/destroy
+        to URLs.
+      summary: Replace a lecture (PUT)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LectureRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    patch:
+      operationId: lectures_partial_update
+      description: CRUD for lectures. The router maps list/create/retrieve/update/partial_update/destroy
+        to URLs.
+      summary: Update part of a lecture (PATCH)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLectureRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLectureRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLectureRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lecture'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    delete:
+      operationId: lectures_destroy
+      description: Owner or admin. Its questions and upvotes are removed by cascade.
+      summary: Delete a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/lectures/{key}/questions/:
+    get:
+      operationId: lectures_questions_list
+      description: 'Ordered like the screen: most upvoted first, answered ones last.
+        Paginated.'
+      summary: List questions of a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestionList'
+          description: ''
+    post:
+      operationId: lectures_questions_create
+      description: Any signed-in user. The caller becomes the author. 409 if the lecture
+        is closed.
+      summary: Ask a question (create)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+        '401':
+          description: No or invalid access token
+        '409':
+          description: Lecture closed
+  /api/lectures/{key}/toggle/:
+    post:
+      operationId: lectures_toggle_create
+      description: Owner or admin. Flips `is_open`; a closed lecture rejects new questions
+        with 409.
+      summary: Open / close a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToggleResult'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/questions/:
+    get:
+      operationId: questions_list
+      description: Every question, newest first. Filter with `?lecture=`, `?is_answered=`,
+        `?author=me`, `?search=`, sort with `?ordering=votes|-votes|created_at`, page
+        with `?limit=&offset=`.
+      summary: List all questions
+      parameters:
+      - in: query
+        name: author
+        schema:
+          type: string
+        description: Author user id, or `me`
+      - in: query
+        name: is_answered
+        schema:
+          type: boolean
+        description: Only answered (true) or only open (false) questions
+      - in: query
+        name: lecture
+        schema:
+          type: string
+        description: Lecture id or join code
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - questions
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestionList'
+          description: ''
+  /api/questions/{id}/:
+    get:
+      operationId: questions_retrieve
+      description: 'Read / update / delete questions. They are created inside a lecture:
+        POST /api/lectures/{key}/questions/.'
+      summary: Get a question by id
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+    put:
+      operationId: questions_update
+      description: Author, lecture owner or admin.
+      summary: Replace a question (PUT)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuestionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    patch:
+      operationId: questions_partial_update
+      description: Author, lecture owner or admin.
+      summary: Update part of a question (PATCH)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedQuestionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedQuestionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedQuestionRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    delete:
+      operationId: questions_destroy
+      description: Author, lecture owner or admin. Its upvotes are removed by cascade.
+      summary: Delete a question
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/questions/{id}/answered/:
+    post:
+      operationId: questions_answered_create
+      description: Lecture owner or admin. Marks the question as answered, or reopens
+        it.
+      summary: Toggle "answered"
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnsweredResult'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/questions/{id}/upvote/:
+    post:
+      operationId: questions_upvote_create
+      description: 'Any signed-in user: adds their upvote, or removes it if it already
+        exists.'
+      summary: Toggle an upvote
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpvoteResult'
+          description: ''
+        '401':
+          description: No or invalid access token
+  /api/stats/:
+    get:
+      operationId: stats
+      description: Totals shown on the home page.
+      summary: Statistics
+      tags:
+      - service
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stats'
+          description: ''
+  /api/users/:
+    get:
+      operationId: users_list
+      description: Admin only. `?role=`, `?is_active=`, `?search=`, `?ordering=`.
+      summary: List users
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: query
+        name: role
+        schema:
+          type: string
+          enum:
+          - admin
+          - lecturer
+          - student
+        description: |-
+          * `student` - Student
+          * `lecturer` - Lecturer
+          * `admin` - Admin
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserAdminList'
+          description: ''
+  /api/users/{id}/:
+    get:
+      operationId: users_retrieve
+      summary: Get a user
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdmin'
+          description: ''
+    patch:
+      operationId: users_partial_update
+      summary: Change a user's role, active flag or name
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserAdminRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserAdminRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserAdminRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAdmin'
+          description: ''
+    delete:
+      operationId: users_destroy
+      description: Their lectures, questions and upvotes go with them.
+      summary: Delete a user
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - users
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /health/:
+    get:
+      operationId: health
+      description: Runs `SELECT version()` on PostgreSQL. Used by the Docker `HEALTHCHECK`.
+      summary: Health check
+      tags:
+      - service
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+          description: ''
+components:
+  schemas:
+    AnsweredResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        is_answered:
+          type: boolean
+      required:
+      - id
+      - is_answered
+    ApiRoot:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        docs:
+          type: string
+          format: uri
+        schema:
+          type: string
+          format: uri
+        health:
+          type: string
+          format: uri
+        stats:
+          type: string
+          format: uri
+        auth:
+          type: object
+          additionalProperties:
+            type: string
+            format: uri
+        lectures:
+          type: string
+          format: uri
+        questions:
+          type: string
+          format: uri
+        users:
+          type: string
+          format: uri
+      required:
+      - auth
+      - docs
+      - health
+      - lectures
+      - name
+      - questions
+      - schema
+      - stats
+      - users
+      - version
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+        database:
+          type: string
+      required:
+      - database
+      - status
+    Lecture:
+      type: object
+      description: A lecture as the API shows it. `code`, `owner`, `created_at` and
+        the URLs are read-only.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 3–120 characters
+          maxLength: 120
+        code:
+          type: string
+          readOnly: true
+          description: 6-character join code generated by the server
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+        owner:
+          allOf:
+          - $ref: '#/components/schemas/UserPublic'
+          readOnly: true
+        question_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        join_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Address encoded in the QR code
+        screen_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Projector page
+        can_manage:
+          type: boolean
+          readOnly: true
+          description: Whether the caller may edit, close or delete it
+      required:
+      - can_manage
+      - code
+      - created_at
+      - id
+      - join_url
+      - owner
+      - question_count
+      - screen_url
+      - title
+    LectureDetail:
+      type: object
+      description: 'GET /api/lectures/{key}/: the lecture plus its questions in screen
+        order.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: 3–120 characters
+          maxLength: 120
+        code:
+          type: string
+          readOnly: true
+          description: 6-character join code generated by the server
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+        owner:
+          allOf:
+          - $ref: '#/components/schemas/UserPublic'
+          readOnly: true
+        question_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        join_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Address encoded in the QR code
+        screen_url:
+          type: string
+          format: uri
+          readOnly: true
+          description: Projector page
+        can_manage:
+          type: boolean
+          readOnly: true
+          description: Whether the caller may edit, close or delete it
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+          readOnly: true
+      required:
+      - can_manage
+      - code
+      - created_at
+      - id
+      - join_url
+      - owner
+      - question_count
+      - questions
+      - screen_url
+      - title
+    LectureRequest:
+      type: object
+      description: A lecture as the API shows it. `code`, `owner`, `created_at` and
+        the URLs are read-only.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters
+          maxLength: 120
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+      required:
+      - title
+    LoginRequest:
+      type: object
+      description: |-
+        POST /api/auth/login/: username + password -> access + refresh tokens.
+
+        SimpleJWT's serializer does the password check; this subclass adds the role
+        and username as claims inside the token and the user profile to the response.
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    LogoutRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+          description: The refresh token to revoke
+      required:
+      - refresh
+    PaginatedLectureList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lecture'
+    PaginatedQuestionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+    PaginatedUserAdminList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserAdmin'
+    PasswordChangeRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 8
+      required:
+      - current_password
+      - new_password
+    PatchedLectureRequest:
+      type: object
+      description: A lecture as the API shows it. `code`, `owner`, `created_at` and
+        the URLs are read-only.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters
+          maxLength: 120
+        is_open:
+          type: boolean
+          description: Closed lectures reject new questions with 409
+    PatchedQuestionRequest:
+      type: object
+      description: A question with its author and vote count.
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 1–500 characters
+          maxLength: 500
+        is_answered:
+          type: boolean
+    PatchedUserAdminRequest:
+      type: object
+      description: Admins may also change the role and (de)activate accounts.
+      properties:
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+    PatchedUserRequest:
+      type: object
+      description: 'Full profile: what /api/auth/me/ and the admin user list return.'
+      properties:
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+    Question:
+      type: object
+      description: A question with its author and vote count.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lecture_id:
+          type: integer
+          readOnly: true
+        lecture_code:
+          type: string
+          readOnly: true
+        lecture_title:
+          type: string
+          readOnly: true
+        text:
+          type: string
+          description: 1–500 characters
+          maxLength: 500
+        author:
+          allOf:
+          - $ref: '#/components/schemas/UserPublic'
+          readOnly: true
+        votes:
+          type: integer
+          readOnly: true
+          default: 0
+          description: Number of upvotes
+        voted:
+          type: boolean
+          readOnly: true
+          default: false
+          description: Whether the caller has upvoted it
+        is_answered:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        can_edit:
+          type: boolean
+          readOnly: true
+          description: Whether the caller may edit or delete it
+        can_answer:
+          type: boolean
+          readOnly: true
+          description: Whether the caller may mark it answered
+      required:
+      - author
+      - can_answer
+      - can_edit
+      - created_at
+      - id
+      - lecture_code
+      - lecture_id
+      - lecture_title
+      - text
+      - voted
+      - votes
+    QuestionRequest:
+      type: object
+      description: A question with its author and vote count.
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 1–500 characters
+          maxLength: 500
+        is_answered:
+          type: boolean
+      required:
+      - text
+    RefreshRequestRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+    RegisterRequest:
+      type: object
+      description: POST /api/auth/register/. Students and lecturers can self-register;
+        admins are created by the seed.
+      properties:
+        username:
+          type: string
+          minLength: 3
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RegisterRoleEnum'
+          default: student
+      required:
+      - password
+      - username
+    RegisterRoleEnum:
+      enum:
+      - student
+      - lecturer
+      type: string
+      description: |-
+        * `student` - student
+        * `lecturer` - lecturer
+    RoleEnum:
+      enum:
+      - student
+      - lecturer
+      - admin
+      type: string
+      description: |-
+        * `student` - Student
+        * `lecturer` - Lecturer
+        * `admin` - Admin
+    Stats:
+      type: object
+      properties:
+        lectures:
+          type: integer
+        open_lectures:
+          type: integer
+        questions:
+          type: integer
+        answered:
+          type: integer
+        upvotes:
+          type: integer
+        users:
+          type: integer
+      required:
+      - answered
+      - lectures
+      - open_lectures
+      - questions
+      - upvotes
+      - users
+    ToggleResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        is_open:
+          type: boolean
+      required:
+      - code
+      - id
+      - is_open
+    TokenPair:
+      type: object
+      description: Response shape of login / register / refresh (documentation only).
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          allOf:
+          - $ref: '#/components/schemas/User'
+          readOnly: true
+      required:
+      - access
+      - refresh
+      - user
+    UpvoteResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        votes:
+          type: integer
+        voted:
+          type: boolean
+      required:
+      - id
+      - voted
+      - votes
+    User:
+      type: object
+      description: 'Full profile: what /api/auth/me/ and the admin user list return.'
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        display_name:
+          type: string
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        stats:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+          description: Counts of the user's lectures, questions and upvotes
+      required:
+      - date_joined
+      - display_name
+      - id
+      - is_active
+      - last_login
+      - role
+      - stats
+      - username
+    UserAdmin:
+      type: object
+      description: Admins may also change the role and (de)activate accounts.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        display_name:
+          type: string
+          readOnly: true
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        stats:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+          description: Counts of the user's lectures, questions and upvotes
+      required:
+      - date_joined
+      - display_name
+      - id
+      - last_login
+      - stats
+      - username
+    UserPublic:
+      type: object
+      description: How a user appears inside other objects (lecture owner, question
+        author).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        display_name:
+          type: string
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+      required:
+      - display_name
+      - id
+      - role
+      - username
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+tags:
+- name: auth
+  description: Register, login, refresh, logout, profile
+- name: users
+  description: User management (admin only)
+- name: lectures
+  description: A lecture (or any session) that collects questions from the audience
+- name: questions
+  description: Questions asked by the audience, with upvotes
+- name: service
+  description: Health check, statistics and API root

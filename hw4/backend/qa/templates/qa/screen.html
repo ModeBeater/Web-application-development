@@ -1,0 +1,54 @@
+{% extends "qa/base.html" %}
+
+{% block title %}Screen · {{ lecture.title }}{% endblock %}
+{% block main_class %}wide{% endblock %}
+
+{% block content %}
+  <h1>{{ lecture.title }}</h1>
+  <div class="controls">
+    <span class="pill open" id="state-pill">open</span>
+    <span class="muted small" id="owner"></span>
+    <button type="button" class="hidden" id="toggle">Close questions</button>
+    <a class="btn ghost sm" href="{% url 'qa:lecture' lecture.code %}">Audience page</a>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="screen">
+    <div class="list" id="questions"></div>
+
+    <aside class="join card">
+      <div class="qr">{{ qr_svg|safe }}</div>
+      <div class="code">{{ lecture.code }}</div>
+      <div class="url">{{ join_url }}</div>
+      {% if join_source == "tunnel" %}
+        <div class="via">via Cloudflare tunnel · works from any network</div>
+      {% elif local_only %}
+        <div class="hint">This address works only on this computer. Start the tunnel (docker compose --profile tunnel up -d) or set PUBLIC_URL in .env to your LAN address.</div>
+      {% endif %}
+      <p class="small muted" style="margin:12px 0 0">Scan to join, sign in, ask and upvote.</p>
+    </aside>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  const code = "{{ lecture.code }}";
+  const list = document.getElementById("questions");
+  const pill = document.getElementById("state-pill");
+  const toggle = document.getElementById("toggle");
+
+  const refresh = RH.startPolling(code, (data) => {
+    RH.renderQuestions(list, data.questions, { mode: "screen", onChange: refresh });
+    pill.textContent = data.is_open ? "open" : "closed";
+    pill.className = "pill " + (data.is_open ? "open" : "closed");
+    document.getElementById("owner").textContent = `${data.owner.display_name} · ${data.question_count} question${data.question_count === 1 ? "" : "s"}`;
+    toggle.classList.toggle("hidden", !data.can_manage);
+    toggle.textContent = data.is_open ? "Close questions" : "Reopen questions";
+  });
+
+  toggle.addEventListener("click", async () => {
+    try { await RH.api(`/api/lectures/${code}/toggle/`, { method: "POST" }); await refresh(); }
+    catch (e) { RH.toast(e.message, "error"); }
+  });
+</script>
+{% endblock %}

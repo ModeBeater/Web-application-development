@@ -1,0 +1,75 @@
+{% extends "qa/base.html" %}
+
+{% block title %}Create account · {{ APP_NAME }}{% endblock %}
+{% block main_class %}narrow{% endblock %}
+
+{% block content %}
+  <div class="card pad-lg auth-card">
+    <h1>Create account</h1>
+    <p class="sub">Students ask and vote; lecturers also run lectures.</p>
+    <form id="register" novalidate>
+      <div class="field">
+        <label>I am a</label>
+        <div class="segmented" id="role">
+          <button type="button" class="active" data-role="student">Student</button>
+          <button type="button" data-role="lecturer">Lecturer</button>
+        </div>
+        <input type="hidden" name="role" value="student">
+      </div>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" required minlength="3">
+        <div class="help">Letters, digits and @/./+/-/_ only.</div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="first_name">First name</label>
+          <input type="text" id="first_name" name="first_name" autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label for="last_name">Last name</label>
+          <input type="text" id="last_name" name="last_name" autocomplete="family-name">
+        </div>
+      </div>
+      <div class="field">
+        <label for="email">Email <span class="muted">(optional)</span></label>
+        <input type="email" id="email" name="email" autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" required minlength="8">
+        <div class="help">At least 8 characters, not only digits, not too common.</div>
+      </div>
+      <div class="field"><div class="error hidden" id="form-error"></div></div>
+      <button class="primary block" type="submit" id="submit">Create account</button>
+    </form>
+    <p class="small muted" style="text-align:center; margin:14px 0 0">Already registered? <a href="/login/">Sign in</a></p>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  if (RH.isAuthed()) location.replace(RH.nextUrl());
+  const form = document.getElementById("register");
+  const error = document.getElementById("form-error");
+  document.getElementById("role").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    document.querySelectorAll("#role button").forEach((x) => x.classList.toggle("active", x === b));
+    form.role.value = b.dataset.role;
+  });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.classList.add("hidden");
+    const btn = document.getElementById("submit"); btn.disabled = true;
+    const payload = Object.fromEntries(new FormData(form).entries());
+    try {
+      const user = await RH.register(payload);
+      RH.toast(`Welcome, ${user.display_name}!`, "ok");
+      location.href = RH.nextUrl();
+    } catch (err) {
+      if (!RH.showFieldErrors(form, err.data)) { error.textContent = err.message; error.classList.remove("hidden"); }
+      btn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

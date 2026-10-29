@@ -1,0 +1,140 @@
+{% extends "qa/base.html" %}
+
+{% block main_class %}wide{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>Questions from the audience, sorted by how many people want them answered.</h1>
+    <p>Start a lecture, put the screen page on the projector, and let the audience ask and upvote from their phones.</p>
+  </section>
+
+  <div class="tiles" id="stats">
+    <div class="tile"><div class="num skeleton">&nbsp;</div><div class="label">lectures</div></div>
+    <div class="tile"><div class="num skeleton">&nbsp;</div><div class="label">questions</div></div>
+    <div class="tile"><div class="num skeleton">&nbsp;</div><div class="label">answered</div></div>
+    <div class="tile"><div class="num skeleton">&nbsp;</div><div class="label">upvotes</div></div>
+    <div class="tile"><div class="num skeleton">&nbsp;</div><div class="label">users</div></div>
+  </div>
+
+  <div class="card hidden" id="new-lecture-card">
+    <h3 id="new">Start a lecture</h3>
+    <form id="new-lecture" class="row">
+      <div class="field" style="margin:0">
+        <label for="title" class="sr-only">Lecture title</label>
+        <input type="text" id="title" name="title" maxlength="120" placeholder="Lecture title, e.g. Flutter 1 · Lecture 09 · State management" required>
+      </div>
+      <button class="primary fixed" type="submit">Start lecture</button>
+    </form>
+    <p class="small muted" style="margin:8px 0 0">You will get a join code and a QR code for the projector.</p>
+  </div>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search lectures by title, code or lecturer…" aria-label="Search lectures">
+    <div class="chips" id="filters">
+      <button class="chip active" type="button" data-filter="">All</button>
+      <button class="chip" type="button" data-filter="open">Open</button>
+      <button class="chip" type="button" data-filter="closed">Closed</button>
+      <button class="chip hidden" type="button" data-filter="mine" id="chip-mine">Mine</button>
+    </div>
+  </div>
+
+  <div class="grid" id="lectures"></div>
+  <div style="text-align:center; margin-top:18px">
+    <button class="hidden" id="more" type="button">Load more</button>
+    <div class="status" id="status"></div>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  const grid = document.getElementById("lectures");
+  const more = document.getElementById("more");
+  const search = document.getElementById("search");
+  const state = { filter: "", query: "", next: null, loading: false };
+
+  async function loadStats() {
+    try {
+      const s = await RH.api("/api/stats/", { auth: false });
+      const nums = document.querySelectorAll("#stats .num");
+      [s.lectures, s.questions, s.answered, s.upvotes, s.users].forEach((v, i) => { nums[i].textContent = v; nums[i].classList.remove("skeleton"); });
+    } catch (e) { RH.setStatus(e.message, true); }
+  }
+
+  function card(l) {
+    const actions = RH.el("div", { class: "actions" },
+      RH.el("a", { class: "btn sm", href: `/l/${l.code}/` }, "Join"),
+      RH.el("a", { class: "btn sm ghost", href: `/l/${l.code}/screen/` }, "Screen"),
+    );
+    if (l.can_manage) {
+      actions.append(RH.el("button", { class: "sm ghost", type: "button", onclick: async () => {
+        try { await RH.api(`/api/lectures/${l.id}/toggle/`, { method: "POST" }); await load(true); }
+        catch (e) { RH.toast(e.message, "error"); }
+      } }, l.is_open ? "Close" : "Reopen"));
+      actions.append(RH.el("button", { class: "sm danger ghost", type: "button", onclick: async () => {
+        if (!(await RH.confirm(`Delete "${l.title}" with its ${l.question_count} questions?`))) return;
+        try { await RH.api(`/api/lectures/${l.id}/`, { method: "DELETE" }); RH.toast("Lecture deleted"); await load(true); await loadStats(); }
+        catch (e) { RH.toast(e.message, "error"); }
+      } }, "Delete"));
+    }
+    return RH.el("article", { class: "card lecture-card" },
+      RH.el("div", { class: "row", style: "justify-content:space-between" },
+        RH.el("span", { class: "code fixed" }, l.code),
+        RH.el("span", { class: `pill fixed ${l.is_open ? "open" : "closed"}` }, l.is_open ? "open" : "closed")),
+      RH.el("div", { class: "title" }, RH.el("a", { href: `/l/${l.code}/`, style: "color:inherit" }, l.title)),
+      RH.el("div", { class: "meta" },
+        RH.el("span", {}, l.owner.display_name),
+        RH.el("span", {}, "·"),
+        RH.el("span", {}, `${l.question_count} question${l.question_count === 1 ? "" : "s"}`),
+        RH.el("span", {}, "·"),
+        RH.el("span", {}, RH.fmtDate(l.created_at))),
+      actions,
+    );
+  }
+
+  async function load(reset = false) {
+    if (state.loading) return;
+    state.loading = true;
+    if (reset) { grid.textContent = ""; state.next = null; }
+    const params = new URLSearchParams({ limit: 12 });
+    if (state.query) params.set("search", state.query);
+    if (state.filter === "open") params.set("is_open", "true");
+    if (state.filter === "closed") params.set("is_open", "false");
+    if (state.filter === "mine") params.set("owner", "me");
+    try {
+      const data = await RH.api(state.next || `/api/lectures/?${params}`);
+      if (!data.results.length && !grid.childElementCount) {
+        grid.append(RH.el("div", { class: "empty", style: "grid-column: 1 / -1" }, RH.el("div", { class: "big" }, "📚"), "No lectures match."));
+      }
+      data.results.forEach((l) => grid.append(card(l)));
+      state.next = data.next;
+      more.classList.toggle("hidden", !data.next);
+      RH.setStatus(`${data.count} lecture${data.count === 1 ? "" : "s"}`);
+    } catch (e) { RH.setStatus(e.message, true); }
+    state.loading = false;
+  }
+
+  document.getElementById("filters").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip"); if (!chip) return;
+    document.querySelectorAll("#filters .chip").forEach((c) => c.classList.toggle("active", c === chip));
+    state.filter = chip.dataset.filter; load(true);
+  });
+  let timer;
+  search.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => { state.query = search.value.trim(); load(true); }, 250); });
+  more.addEventListener("click", () => load(false));
+
+  document.getElementById("new-lecture").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = document.getElementById("title");
+    try {
+      const lecture = await RH.api("/api/lectures/", { method: "POST", body: { title: title.value } });
+      RH.toast(`Lecture ${lecture.code} created`, "ok");
+      location.href = lecture.screen_url;
+    } catch (err) { RH.toast(err.message, "error"); }
+  });
+
+  if (RH.canCreateLectures()) document.getElementById("new-lecture-card").classList.remove("hidden");
+  if (RH.isAuthed()) document.getElementById("chip-mine").classList.remove("hidden");
+  if (location.hash === "#new") document.getElementById("title").focus();
+  loadStats(); load(true);
+</script>
+{% endblock %}

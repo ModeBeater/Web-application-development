@@ -1,0 +1,92 @@
+{% extends "qa/base.html" %}
+
+{% block title %}Users · {{ APP_NAME }}{% endblock %}
+{% block main_class %}wide{% endblock %}
+
+{% block content %}
+  <h1>Users</h1>
+  <p class="sub">Change roles, deactivate or delete accounts. Admin only.</p>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search by username, name or email…" aria-label="Search users">
+    <div class="chips" id="filters">
+      <button class="chip active" type="button" data-role="">All roles</button>
+      <button class="chip" type="button" data-role="student">Students</button>
+      <button class="chip" type="button" data-role="lecturer">Lecturers</button>
+      <button class="chip" type="button" data-role="admin">Admins</button>
+    </div>
+  </div>
+
+  <div class="card table-wrap">
+    <table class="data">
+      <thead><tr><th>#</th><th>User</th><th>Email</th><th>Role</th><th>Active</th><th>Activity</th><th>Joined</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div style="text-align:center; margin-top:12px">
+      <button class="hidden" id="more" type="button">Load more</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  if (RH.requireAuth()) {
+    const rows = document.getElementById("rows");
+    const more = document.getElementById("more");
+    const state = { role: "", query: "", next: null };
+    const me = RH.user();
+
+    function row(u) {
+      const roleSelect = RH.el("select", { onchange: async (e) => {
+        try { await RH.api(`/api/users/${u.id}/`, { method: "PATCH", body: { role: e.target.value } }); RH.toast(`${u.username} is now ${e.target.value}`, "ok"); }
+        catch (err) { RH.toast(err.message, "error"); e.target.value = u.role; }
+      } }, ...["student", "lecturer", "admin"].map((r) => RH.el("option", { value: r, selected: r === u.role }, r)));
+      const active = RH.el("input", { type: "checkbox", checked: u.is_active, onchange: async (e) => {
+        try { await RH.api(`/api/users/${u.id}/`, { method: "PATCH", body: { is_active: e.target.checked } }); RH.toast(`${u.username} ${e.target.checked ? "activated" : "deactivated"}`); }
+        catch (err) { RH.toast(err.message, "error"); e.target.checked = !e.target.checked; }
+      } });
+      const del = RH.el("button", { class: "sm danger ghost", type: "button", disabled: u.id === me.id, onclick: async () => {
+        if (!(await RH.confirm(`Delete ${u.username} with all their lectures, questions and upvotes?`))) return;
+        try { await RH.api(`/api/users/${u.id}/`, { method: "DELETE" }); RH.toast("User deleted"); await load(true); } catch (err) { RH.toast(err.message, "error"); }
+      } }, "Delete");
+      const s = u.stats || {};
+      return RH.el("tr", {},
+        RH.el("td", { class: "muted" }, u.id),
+        RH.el("td", {}, RH.el("strong", {}, u.display_name), RH.el("div", { class: "muted small" }, `@${u.username}`)),
+        RH.el("td", { class: "small" }, u.email || "—"),
+        RH.el("td", {}, roleSelect),
+        RH.el("td", {}, active),
+        RH.el("td", { class: "small muted" }, `${s.lectures} lectures · ${s.questions} questions · ${s.upvotes_given} votes`),
+        RH.el("td", { class: "small" }, RH.fmtDate(u.date_joined)),
+        RH.el("td", {}, del));
+    }
+
+    async function load(reset = false) {
+      if (reset) { rows.textContent = ""; state.next = null; }
+      const params = new URLSearchParams({ limit: 25, ordering: "id" });
+      if (state.query) params.set("search", state.query);
+      if (state.role) params.set("role", state.role);
+      try {
+        const data = await RH.api(state.next || `/api/users/?${params}`);
+        data.results.forEach((u) => rows.append(row(u)));
+        state.next = data.next; more.classList.toggle("hidden", !data.next);
+        RH.setStatus(`${data.count} user${data.count === 1 ? "" : "s"}`);
+      } catch (e) {
+        if (e.status === 403) rows.replaceChildren(RH.el("tr", {}, RH.el("td", { colspan: 8, class: "empty" }, "Admin role required.")));
+        RH.setStatus(e.message, true);
+      }
+    }
+
+    document.getElementById("filters").addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip"); if (!chip) return;
+      document.querySelectorAll("#filters .chip").forEach((c) => c.classList.toggle("active", c === chip));
+      state.role = chip.dataset.role; load(true);
+    });
+    let timer;
+    document.getElementById("search").addEventListener("input", (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value.trim(); load(true); }, 250); });
+    more.addEventListener("click", () => load(false));
+    load(true);
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "qa/base.html" %}
+
+{% block title %}Sign in · {{ APP_NAME }}{% endblock %}
+{% block main_class %}narrow{% endblock %}
+
+{% block content %}
+  <div class="card pad-lg auth-card">
+    <h1>Welcome back</h1>
+    <p class="sub">Sign in to ask questions and upvote.</p>
+    <form id="login" novalidate>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="field"><div class="error hidden" id="form-error"></div></div>
+      <button class="primary block" type="submit" id="submit">Sign in</button>
+    </form>
+    <p class="small muted" style="text-align:center; margin:14px 0 0">No account yet? <a id="register-link" href="/register/">Create one</a></p>
+    <div class="demo-box">
+      <strong>Demo accounts</strong> (password <code>Demo12345!</code> unless changed in <code>.env</code>):
+      <code>admin</code> · <code>lecturer</code> · <code>student</code>
+    </div>
+  </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  if (RH.isAuthed()) location.replace(RH.nextUrl());
+  const next = new URLSearchParams(location.search).get("next");
+  if (next) document.getElementById("register-link").href = `/register/?next=${encodeURIComponent(next)}`;
+  const form = document.getElementById("login");
+  const error = document.getElementById("form-error");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.classList.add("hidden");
+    const btn = document.getElementById("submit"); btn.disabled = true;
+    try {
+      const user = await RH.login(form.username.value.trim(), form.password.value);
+      RH.toast(`Signed in as ${user.display_name}`, "ok");
+      location.href = RH.nextUrl();
+    } catch (err) {
+      error.textContent = err.status === 401 ? "Wrong username or password." : err.message;
+      error.classList.remove("hidden");
+      btn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

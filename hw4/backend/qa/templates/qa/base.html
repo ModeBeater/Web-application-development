@@ -1,0 +1,45 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ APP_NAME }}{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'qa/app.css' %}">
+  <script>
+    // Apply the saved theme before the first paint to avoid a flash
+    try { const t = localStorage.getItem("rh.theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="top">
+    <div class="inner">
+      <a class="brand" href="/"><span class="logo">✋</span>{{ APP_NAME }}</a>
+      <nav class="links">
+        <a href="/" {% if request.resolver_match.url_name == "home" %}class="active"{% endif %}>Lectures</a>
+        <a href="/docs/">API docs</a>
+      </nav>
+      <span class="spacer"></span>
+      <button class="icon ghost" id="theme-toggle" type="button" title="Toggle light / dark theme" aria-label="Toggle theme">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      </button>
+      <div class="auth-area" id="auth-area"></div>
+    </div>
+  </header>
+
+  <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+
+  <footer>
+    <div class="inner">
+      <span>{{ APP_NAME }} · live questions for lectures</span>
+      <a href="/docs/">API docs</a>
+      <a href="/api/">API root</a>
+      <a href="/health/">health</a>
+    </div>
+  </footer>
+
+  <script src="{% static 'qa/app.js' %}"></script>
+  <script>RH.refreshMs = {{ REFRESH_SECONDS }} * 1000;</script>
+  {% block script %}{% endblock %}
+</body>
+</html>
