@@ -9,3 +9,4 @@ Homework submissions. Each homework lives in its own folder; later homeworks are
 | Midterm | [`midterm/`](midterm/) | `midterm` | Full REST API (CRUD) + OpenAPI/Swagger docs + Postman collection, Docker Compose |
 | HW3 | [`hw3/`](hw3/) | `hw3` | Django REST Framework: serializers, viewsets, filters, pagination, generated OpenAPI docs, Postman |
 | HW4 / Endterm | [`hw4/`](hw4/) | `hw4` | Complete app: JWT auth (access + refresh), roles & permissions, personal cabinet, frontend, Docker Compose |
+| Midterm practical | [`midterm-practical/`](midterm-practical/) | `midterm-practical` | Space Bounty Hunters REST API: filtering/sorting, hunt-log CRUD, seeded PostgreSQL, Postman collection (60-minute practical) |

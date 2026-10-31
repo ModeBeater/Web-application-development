@@ -1,0 +1,270 @@
+[
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 1,
+  "fields": {
+    "name": "Asimov Solensan",
+    "nickname": "Red Eye Runner",
+    "reward": "2500000.00",
+    "latitude": "19.600000",
+    "longitude": "85.200000",
+    "location_note": "Tijuana orbital spaceport, last seen boarding a freighter",
+    "difficulty": 7,
+    "armed": true,
+    "has_crew": false,
+    "escape_master": false
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 2,
+  "fields": {
+    "name": null,
+    "nickname": "Ghost of Ganymede",
+    "reward": "9000000.00",
+    "latitude": "-14.200000",
+    "longitude": "44.900000",
+    "location_note": "Ganymede sea-ports, moves between fishing platforms",
+    "difficulty": 9,
+    "armed": true,
+    "has_crew": true,
+    "escape_master": true
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 3,
+  "fields": {
+    "name": "Teddy Bomber",
+    "nickname": "Teddy",
+    "reward": "4500000.00",
+    "latitude": null,
+    "longitude": null,
+    "location_note": "No fixed location; strikes skyscrapers in domed cities",
+    "difficulty": 6,
+    "armed": true,
+    "has_crew": false,
+    "escape_master": true
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 4,
+  "fields": {
+    "name": "Pierrot Le Fou",
+    "nickname": "Mad Pierrot",
+    "reward": "12000000.00",
+    "latitude": "25.400000",
+    "longitude": "98.700000",
+    "location_note": "Abandoned theme park outside Mars City",
+    "difficulty": 10,
+    "armed": true,
+    "has_crew": false,
+    "escape_master": true
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 5,
+  "fields": {
+    "name": "Udai Taxim",
+    "nickname": "The Syndicate Accountant",
+    "reward": "1800000.00",
+    "latitude": "33.900000",
+    "longitude": "123.100000",
+    "location_note": "Europa prison transport, escorted",
+    "difficulty": 4,
+    "armed": false,
+    "has_crew": true,
+    "escape_master": false
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 6,
+  "fields": {
+    "name": null,
+    "nickname": "Twinkle Maria",
+    "reward": "3200000.00",
+    "latitude": null,
+    "longitude": null,
+    "location_note": "Last ping from a Jupiter-bound tanker, cargo deck",
+    "difficulty": 5,
+    "armed": false,
+    "has_crew": true,
+    "escape_master": true
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 7,
+  "fields": {
+    "name": "Decker Vasquez",
+    "nickname": "Decker",
+    "reward": "1500000.00",
+    "latitude": "-2.800000",
+    "longitude": "32.500000",
+    "location_note": "Asteroid belt mining colony, hangar 7",
+    "difficulty": 3,
+    "armed": true,
+    "has_crew": false,
+    "escape_master": false
+  }
+},
+{
+  "model": "bounty.wantedcriminal",
+  "pk": 8,
+  "fields": {
+    "name": "Rhint Celonias",
+    "nickname": "Rhint",
+    "reward": "800000.00",
+    "latitude": "51.000000",
+    "longitude": "-7.400000",
+    "location_note": "Blue Crow, Callisto; local card dens",
+    "difficulty": 2,
+    "armed": false,
+    "has_crew": false,
+    "escape_master": false
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 1,
+  "fields": {
+    "criminal": 1,
+    "success": false,
+    "notes": "Target escaped through an asteroid field.",
+    "created_at": "2026-10-11T07:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 2,
+  "fields": {
+    "criminal": 1,
+    "success": true,
+    "notes": "Captured at the spaceport customs line; bounty paid in full.",
+    "created_at": "2026-10-13T07:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 3,
+  "fields": {
+    "criminal": 2,
+    "success": false,
+    "notes": "Lost the signal in a storm over the Ganymede sea.",
+    "created_at": "2026-10-16T06:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 4,
+  "fields": {
+    "criminal": 2,
+    "success": false,
+    "notes": "Decoy ship; the real one left two hours earlier.",
+    "created_at": "2026-10-20T06:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 5,
+  "fields": {
+    "criminal": 3,
+    "success": false,
+    "notes": "Bomb threat forced evacuation; suspect blended into the crowd.",
+    "created_at": "2026-10-17T05:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 6,
+  "fields": {
+    "criminal": 3,
+    "success": true,
+    "notes": "Cornered on the roof after the fourth bombing attempt.",
+    "created_at": "2026-10-22T05:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 7,
+  "fields": {
+    "criminal": 4,
+    "success": false,
+    "notes": "Ship damaged; retreat. Do not engage alone.",
+    "created_at": "2026-10-23T04:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 8,
+  "fields": {
+    "criminal": 5,
+    "success": true,
+    "notes": "Handed over at Europa prison without a fight.",
+    "created_at": "2026-10-24T03:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 9,
+  "fields": {
+    "criminal": 6,
+    "success": false,
+    "notes": "Boarded the wrong tanker.",
+    "created_at": "2026-10-25T02:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 10,
+  "fields": {
+    "criminal": 6,
+    "success": false,
+    "notes": "She was on the cargo deck but vanished behind a bulkhead.",
+    "created_at": "2026-10-27T02:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 11,
+  "fields": {
+    "criminal": 7,
+    "success": true,
+    "notes": "Hangar 7 ambush worked; minor ship damage.",
+    "created_at": "2026-10-28T01:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 12,
+  "fields": {
+    "criminal": 8,
+    "success": true,
+    "notes": "Found at a card table, surrendered immediately.",
+    "created_at": "2026-10-29T00:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 13,
+  "fields": {
+    "criminal": 8,
+    "success": false,
+    "notes": "False tip from an informant.",
+    "created_at": "2026-10-30T00:08:27.489Z"
+  }
+},
+{
+  "model": "bounty.huntlog",
+  "pk": 14,
+  "fields": {
+    "criminal": 4,
+    "success": false,
+    "notes": "Theme park search found only traps and toys.",
+    "created_at": "2026-10-31T04:08:27.489Z"
+  }
+}
+]

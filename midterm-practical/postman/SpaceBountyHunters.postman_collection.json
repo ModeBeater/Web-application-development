@@ -1,0 +1,1295 @@
+{
+  "info": {
+    "_postman_id": "e4fcb864-1e9f-4d39-bae4-f8644391aaa5",
+    "name": "Space Bounty Hunters API",
+    "description": "Midterm practical assignment — Web Application Development (KBTU, Fall 2026).\n\nDjango 5.2 + Django REST Framework + PostgreSQL. Set `base_url` (default `http://localhost:8000`) and run the folders top to bottom — the hunt-log CRUD requests chain through the `hunt_id` variable.\n\nFolders: 1) criminals listing, filtering (`min_reward`, `max_reward`, `armed`, `has_crew`, `escape_master`) and sorting (`sort=reward|-reward`), details; 2) full CRUD of hunt logs; 3) invalid requests (404 / 400 / 405).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "API root",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            ""
+          ]
+        },
+        "description": ""
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"Links to criminals and hunts\", () => { pm.expect(body.criminals).to.be.a(\"string\"); pm.expect(body.hunts).to.be.a(\"string\"); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/health/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health",
+            ""
+          ]
+        },
+        "description": ""
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"App and database are healthy\", () => pm.expect(body.status).to.eql(\"ok\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Criminals (read-only)",
+      "description": "",
+      "item": [
+        {
+          "name": "List all criminals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ]
+            },
+            "description": "All wanted criminals, ordered by id."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Returns a list with at least 5 criminals\", () => { pm.expect(body).to.be.an(\"array\"); pm.expect(body.length).to.be.at.least(5); });",
+                  "pm.test(\"Each criminal has the required fields\", () => { for (const c of body) { pm.expect(c).to.have.all.keys(\"id\",\"name\",\"nickname\",\"reward\",\"last_known_coordinates\",\"location_note\",\"difficulty\",\"armed\",\"has_crew\",\"escape_master\",\"hunt_count\"); } });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Example from the task: ?min_reward=5000&armed=true&sort=-reward",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?min_reward=5000&armed=true&sort=-reward",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "min_reward",
+                  "value": "5000"
+                },
+                {
+                  "key": "armed",
+                  "value": "true"
+                },
+                {
+                  "key": "sort",
+                  "value": "-reward"
+                }
+              ]
+            },
+            "description": "The exact example from the assignment text."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Only armed criminals with reward >= 5000, most expensive first\", () => { pm.expect(body.length).to.be.above(0); for (const c of body) { pm.expect(c.armed).to.eql(true); pm.expect(Number(c.reward)).to.be.at.least(5000); } for (let i = 1; i < body.length; i++) pm.expect(Number(body[i-1].reward)).to.be.at.least(Number(body[i].reward)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: min_reward=5000000 + armed + sort=-reward",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?min_reward=5000000&armed=true&sort=-reward",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "min_reward",
+                  "value": "5000000"
+                },
+                {
+                  "key": "armed",
+                  "value": "true"
+                },
+                {
+                  "key": "sort",
+                  "value": "-reward"
+                }
+              ]
+            },
+            "description": "Filters are combinable: `?min_reward=5000000&armed=true&sort=-reward`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Every result has reward >= 5 000 000 and is armed\", () => { pm.expect(body.length).to.be.above(0); for (const c of body) { pm.expect(Number(c.reward)).to.be.at.least(5000000); pm.expect(c.armed).to.eql(true); } });",
+                  "pm.test(\"Sorted by reward descending\", () => { for (let i = 1; i < body.length; i++) pm.expect(Number(body[i-1].reward)).to.be.at.least(Number(body[i].reward)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: max_reward + escape_master=false + sort=reward",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?max_reward=5000000&escape_master=false&sort=reward",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "max_reward",
+                  "value": "5000000"
+                },
+                {
+                  "key": "escape_master",
+                  "value": "false"
+                },
+                {
+                  "key": "sort",
+                  "value": "reward"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Every result has reward <= 5 000 000 and is not an escape master\", () => { pm.expect(body.length).to.be.above(0); for (const c of body) { pm.expect(Number(c.reward)).to.be.at.most(5000000); pm.expect(c.escape_master).to.eql(false); } });",
+                  "pm.test(\"Sorted by reward ascending\", () => { for (let i = 1; i < body.length; i++) pm.expect(Number(body[i-1].reward)).to.be.at.most(Number(body[i].reward)); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: has_crew=true",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?has_crew=true",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "has_crew",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Every result has a crew\", () => { pm.expect(body.length).to.be.above(0); for (const c of body) pm.expect(c.has_crew).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: reward range (min_reward & max_reward)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?min_reward=1000000&max_reward=5000000",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "min_reward",
+                  "value": "1000000"
+                },
+                {
+                  "key": "max_reward",
+                  "value": "5000000"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Rewards are inside the range\", () => { pm.expect(body.length).to.be.above(0); for (const c of body) { const r = Number(c.reward); pm.expect(r).to.be.at.least(1000000); pm.expect(r).to.be.at.most(5000000); } });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sort: reward descending only",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?sort=-reward",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "-reward"
+                }
+              ]
+            },
+            "description": "Also saves the id of the most expensive criminal into `criminal_id` for the next requests."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"First criminal has the biggest reward\", () => { const max = Math.max(...body.map(c => Number(c.reward))); pm.expect(Number(body[0].reward)).to.eql(max); });",
+                  "pm.collectionVariables.set(\"criminal_id\", body[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criminal details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/{{criminal_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                "{{criminal_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Returned the requested criminal\", () => { pm.expect(String(body.id)).to.eql(String(pm.collectionVariables.get(\"criminal_id\"))); pm.expect(body).to.have.property(\"nickname\"); pm.expect(body).to.have.property(\"difficulty\"); });",
+                  "pm.test(\"Coordinates are an object {latitude, longitude} or null\", () => { const c = body.last_known_coordinates; pm.expect(c === null || (typeof c === \"object\" && \"latitude\" in c && \"longitude\" in c)).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criminal details — unknown name (name is null)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/2/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                "2",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Name may be unknown (null) while nickname is set\", () => { pm.expect(body.name).to.eql(null); pm.expect(body.nickname).to.be.a(\"string\"); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Hunt logs (CRUD)",
+      "description": "",
+      "item": [
+        {
+          "name": "List all hunt logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"At least 10 hunt logs are prefilled\", () => { pm.expect(body).to.be.an(\"array\"); pm.expect(body.length).to.be.at.least(10); });",
+                  "pm.test(\"Newest first\", () => { for (let i = 1; i < body.length; i++) pm.expect(body[i-1].created_at >= body[i].created_at).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hunt logs of one criminal (?criminal_id=5)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/?criminal_id=5",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "criminal_id",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Every log belongs to criminal 5\", () => { pm.expect(body.length).to.be.above(0); for (const h of body) pm.expect(h.criminal_id).to.eql(5); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create hunt log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                ""
+              ]
+            },
+            "description": "Body from the assignment. `created_at` sent by the client is ignored - the server sets it. The new id is saved into `hunt_id`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"criminal_id\": 3,\n  \"success\": false,\n  \"notes\": \"Target escaped through an asteroid field.\",\n  \"created_at\": \"2000-01-01T00:00:00Z\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"created_at comes from the server, not from the client\", () => pm.expect(body.created_at).to.not.include(\"2000-01-01\"));",
+                  "pm.test(\"Server assigned id and created_at\", () => { pm.expect(body.id).to.be.a(\"number\"); pm.expect(body.created_at).to.be.a(\"string\"); pm.expect(body.criminal_id).to.eql(3); pm.expect(body.success).to.eql(false); });",
+                  "pm.collectionVariables.set(\"hunt_id\", body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get the created hunt log",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/{{hunt_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "{{hunt_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Same hunt log\", () => { pm.expect(String(body.id)).to.eql(String(pm.collectionVariables.get(\"hunt_id\"))); pm.expect(body.notes).to.include(\"asteroid field\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update hunt log (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/{{hunt_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "{{hunt_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"success\": true,\n  \"notes\": \"Caught him on the second attempt at Tijuana station\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Fields were updated, created_at unchanged by client\", () => { pm.expect(body.success).to.eql(true); pm.expect(body.notes).to.include(\"second attempt\"); pm.expect(body).to.have.property(\"created_at\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replace hunt log (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/{{hunt_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "{{hunt_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"criminal_id\": 3,\n  \"success\": true,\n  \"notes\": \"Full update via PUT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Replaced\", () => { pm.expect(body.notes).to.eql(\"Full update via PUT\"); pm.expect(body.criminal_id).to.eql(3); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete hunt log",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/{{hunt_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "{{hunt_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));",
+                  "pm.test(\"Empty body\", () => pm.expect(pm.response.text()).to.eql(\"\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get the deleted hunt log → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/{{hunt_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "{{hunt_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Error has a detail message\", () => pm.expect(body.detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Invalid requests",
+      "description": "",
+      "item": [
+        {
+          "name": "Criminal with non-existent id → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/999/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                "999",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"detail present\", () => pm.expect(body.detail).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criminal with non-numeric id → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/abc/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                "abc",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid filter value (min_reward=abc, armed=maybe) → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/?min_reward=abc&armed=maybe",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "min_reward",
+                  "value": "abc"
+                },
+                {
+                  "key": "armed",
+                  "value": "maybe"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Field errors returned for both parameters\", () => { pm.expect(body).to.have.property(\"min_reward\"); pm.expect(body).to.have.property(\"armed\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hunt log for non-existent criminal → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"criminal_id\": 999,\n  \"success\": true,\n  \"notes\": \"ghost\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"criminal_id error\", () => pm.expect(body.criminal_id[0]).to.include(\"does not exist\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hunt log without criminal_id → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"success\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"criminal_id is required\", () => pm.expect(body.criminal_id[0]).to.include(\"required\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hunt log with invalid boolean → 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/1/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "1",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"success\": \"maybe\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"success must be boolean\", () => pm.expect(body.success[0]).to.include(\"boolean\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hunt log with non-existent id → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/9999/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                "9999",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Hunt logs with invalid ?criminal_id → 400",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/hunts/?criminal_id=abc",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "hunts",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "criminal_id",
+                  "value": "abc"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"criminal_id filter error\", () => pm.expect(body).to.have.property(\"criminal_id\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criminals are read-only: POST → 405",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/criminals/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "criminals",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nickname\": \"Nope\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 405\", () => pm.response.to.have.status(405));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Method not allowed message\", () => pm.expect(body.detail).to.include(\"not allowed\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "criminal_id",
+      "value": "1"
+    },
+    {
+      "key": "hunt_id",
+      "value": ""
+    }
+  ]
+}
