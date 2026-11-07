@@ -40,7 +40,7 @@ A demo lecture with code `KBTU26` is created by a data migration on the first st
 
 Stop with `Ctrl+C`, remove the containers with `docker compose down` (the data stays, see below).
 
-## Data models (two related models + upvotes)
+## Data models (three related models, two one-to-many relationships)
 
 ```text
 Lecture (title, code, is_open, created_at)
@@ -157,16 +157,15 @@ docker compose up -d --build                        # rebuild and recreate after
 
 | Requirement | Where |
 | --- | --- |
-| REST API using Django, Django REST Framework and a relational database | `rest_framework` in `INSTALLED_APPS`, PostgreSQL 17 (`db` service) |
-| Create and configure a Django project | `backend/config/` — settings read from environment variables |
-| At least two related data models | `Lecture` → `Question` → `Upvote` (`backend/qa/models.py`) |
-| Create and apply database migrations | `backend/qa/migrations/`, applied by `entrypoint.sh` |
-| Django ORM to create, retrieve, update and delete data | `serializer.save()` → INSERT/UPDATE, `instance.delete()`, annotated querysets in `lookup.py` |
-| Serializers for application models | `backend/qa/serializers.py` |
-| REST API endpoints for CRUD operations | `LectureViewSet`, `QuestionViewSet` (`backend/qa/api.py`) |
-| URL routing | `SimpleRouter` in `backend/qa/urls.py` |
-| Data validation and appropriate HTTP responses | field rules + `validate_*` in serializers; 200/201/204/400/404/405/409 |
-| Test the API using an API client | Postman collection (+ newman), Swagger "Try it out", 35 automated tests |
+| At least 3 related data models / entities | `Lecture`, `Question`, `Upvote` — `backend/qa/models.py` |
+| At least 2 relationships between models, including at least one one-to-many | `Question.lecture` → `Lecture` (one lecture has many questions) and `Upvote.question` → `Question` (one question has many upvotes, one per voter — `UniqueConstraint(question, voter_id)`); both `on_delete=CASCADE` |
+| Relational database and an ORM | PostgreSQL 17 (`db` service, `psycopg`) + Django ORM: models, migrations (`backend/qa/migrations/`), annotated querysets (`backend/qa/lookup.py`) |
+| At least 10 API endpoints | 19 — 3 service (`/api/`, `/health/`, `/api/schema/`), 7 for lectures, 9 for questions; full table in [`docs/API.md`](docs/API.md) |
+| GET, POST, PUT/PATCH and DELETE operations | lectures: `GET`/`POST /api/lectures/`, `GET`/`PUT`/`PATCH`/`DELETE /api/lectures/{key}/`; questions: `POST /api/lectures/{key}/questions/`, `GET`/`PUT`/`PATCH`/`DELETE /api/questions/{id}/` |
+| Endpoints that work with related data | `GET` / `POST /api/lectures/{key}/questions/` (the questions of one lecture), `GET /api/lectures/{key}/` embeds `"questions": [...]`, `GET /api/questions/?lecture=` filters by lecture, `POST /api/questions/{id}/upvote/` creates or removes an `Upvote` |
+| Request validation and appropriate HTTP status / error responses | serializer field rules + `validate_*` (`backend/qa/serializers.py`); `200`/`201`/`204` on success, `400` with per-field messages, `404` unknown id or code, `405` wrong method, `409` question for a closed lecture, `503` database down |
+| Documentation of all endpoints: method, URL, parameters / body, expected response | [`docs/API.md`](docs/API.md) — every endpoint with its parameters, request body and example responses; the same contract as generated OpenAPI 3: Swagger UI at `/docs/`, [`backend/openapi.yaml`](backend/openapi.yaml) |
+| Postman Collection with working requests for all endpoints | [`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — 33 requests covering all 19 endpoints plus error cases, with test scripts; verified with newman (0 failed) |
 
 ## Project structure
 
