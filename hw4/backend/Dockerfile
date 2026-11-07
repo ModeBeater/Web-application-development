@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Application source (filtered by .dockerignore)
 COPY --chown=appuser:appuser . .
-RUN chmod +x entrypoint.sh
+# /app itself was created by WORKDIR as root; collectstatic (run as appuser) must be able to create staticfiles/ in it
+RUN chmod +x entrypoint.sh && mkdir -p staticfiles && chown appuser:appuser /app /app/staticfiles
 
 USER appuser
 
