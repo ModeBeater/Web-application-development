@@ -1,16 +1,22 @@
 """
 REST API built with Django REST Framework.
 
-Two resources, each a ViewSet that the router turns into URLs:
+Three resources, each a ViewSet that the router turns into URLs:
 
     LectureViewSet   GET/POST /api/lectures/   GET/PUT/PATCH/DELETE /api/lectures/{key}/
                      POST /api/lectures/{key}/toggle/   GET/POST /api/lectures/{key}/questions/
+                     GET/POST /api/lectures/{key}/topics/
+    TopicViewSet     GET /api/topics/   GET/PUT/PATCH/DELETE /api/topics/{id}/   GET /api/topics/{id}/questions/
     QuestionViewSet  GET /api/questions/   GET/PUT/PATCH/DELETE /api/questions/{id}/
                      POST /api/questions/{id}/upvote/   POST /api/questions/{id}/answered/
+                     GET/PUT/DELETE /api/questions/{id}/answer/   (one-to-one Answer)
+
+Relationships: Lecture 1-* Topic, Lecture 1-* Question, Topic 1-* Question (SET_NULL),
+Question 1-* Upvote, Question 1-1 Answer. All CASCADE except the topic tag.
 
 Serializers (serializers.py) validate input and shape output; filters.py adds
-?lecture=&is_answered=; pagination.py adds ?limit=&offset=. `{key}` is a
-numeric id or the 6-character join code. Error responses follow DRF:
+?lecture=&topic=&is_answered=&has_answer=; pagination.py adds ?limit=&offset=.
+`{key}` is a numeric id or the 6-character join code. Error responses follow DRF:
 {"detail": "..."} for 404/405/409, {"field": ["message"]} for 400.
 There is no authentication yet — it is the subject of HW4.
 """
@@ -21,14 +27,15 @@ from django.db.models import Count
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 
-from .filters import LectureFilter, QuestionFilter
-from .lookup import find_lecture, questions_for, with_votes
-from .models import Lecture, Question, Upvote
+from .filters import LectureFilter, QuestionFilter, TopicFilter
+from .lookup import find_lecture, questions_for, topics_for, with_votes
+from .models import Answer, Lecture, Question, Topic, Upvote
 from .serializers import (
+    AnswerSerializer,
     AnsweredResultSerializer,
     ApiRootSerializer,
     HealthSerializer,
@@ -36,12 +43,13 @@ from .serializers import (
     LectureSerializer,
     QuestionSerializer,
     ToggleResultSerializer,
+    TopicSerializer,
     UpvoteRequestSerializer,
     UpvoteResultSerializer,
 )
 from .voters import get_voter, remember_voter
 
-API_VERSION = "2.0"
+API_VERSION = "2.1"
 
 KEY_PARAM = OpenApiParameter(
     "key", str, OpenApiParameter.PATH, description="Lecture id (`12`) or join code (`KBTU26`, case-insensitive)"
@@ -79,7 +87,9 @@ class LectureClosed(APIException):
 class LectureViewSet(viewsets.ModelViewSet):
     """CRUD for lectures. The router maps list/create/retrieve/update/partial_update/destroy to URLs."""
 
-    queryset = Lecture.objects.annotate(question_count=Count("questions"))
+    queryset = Lecture.objects.annotate(
+        question_count=Count("questions", distinct=True), topic_count=Count("topics", distinct=True)
+    )
     serializer_class = LectureSerializer
     filterset_class = LectureFilter
     search_fields = ["title", "code"]
@@ -102,6 +112,7 @@ class LectureViewSet(viewsets.ModelViewSet):
     def retrieve(self, request, key=None):
         lecture = self.get_object()
         voter_id, is_new = get_voter(request)
+        lecture.ordered_topics = topics_for(lecture)
         lecture.ordered_questions = questions_for(lecture, voter_id)
         response = Response(self.get_serializer(lecture).data)
         return remember_voter(response, voter_id, is_new)
@@ -157,11 +168,90 @@ class LectureViewSet(viewsets.ModelViewSet):
 
         if not lecture.is_open:
             raise LectureClosed()
-        serializer = QuestionSerializer(data=request.data, context=self.get_serializer_context())
+        context = {**self.get_serializer_context(), "lecture": lecture}  # topic_id must belong to this lecture
+        serializer = QuestionSerializer(data=request.data, context=context)
         serializer.is_valid(raise_exception=True)
         serializer.save(lecture=lecture)
         voter_id, is_new = get_voter(request, request.data)
         return remember_voter(Response(serializer.data, status=status.HTTP_201_CREATED), voter_id, is_new)
+
+    @extend_schema(
+        methods=["GET"],
+        summary="List topics of a lecture",
+        description="The lecture plan: topics in order, each with its number of tagged questions.",
+        parameters=[KEY_PARAM],
+        responses=TopicSerializer(many=True),
+    )
+    @extend_schema(
+        methods=["POST"],
+        summary="Add a topic to a lecture",
+        description="One lecture has many topics (one-to-many). The title must be unique within the lecture.",
+        parameters=[KEY_PARAM],
+        request=TopicSerializer,
+        responses={201: TopicSerializer},
+    )
+    @action(detail=True, methods=["get", "post"], serializer_class=TopicSerializer, filter_backends=[])
+    def topics(self, request, key=None):
+        lecture = self.get_object()
+        if request.method == "GET":
+            page = self.paginate_queryset(topics_for(lecture))
+            return self.get_paginated_response(TopicSerializer(page, many=True).data)
+
+        context = {**self.get_serializer_context(), "lecture": lecture}
+        serializer = TopicSerializer(data=request.data, context=context)
+        serializer.is_valid(raise_exception=True)
+        topic = serializer.save(lecture=lecture)
+        topic.question_count = 0
+        return Response(TopicSerializer(topic, context=context).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Topics
+# ---------------------------------------------------------------------------
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all topics",
+        description="Topics of every lecture; filter with `?lecture=<id|code>`, page with `?limit=&offset=`.",
+    ),
+    retrieve=extend_schema(summary="Get a topic by id"),
+    update=extend_schema(summary="Replace a topic (PUT)"),
+    partial_update=extend_schema(summary="Update part of a topic (PATCH)"),
+    destroy=extend_schema(
+        summary="Delete a topic",
+        description="The lecture's questions stay; their `topic_id` becomes null (SET_NULL).",
+    ),
+)
+class TopicViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Read / update / delete topics. They are created inside a lecture: POST /api/lectures/{key}/topics/."""
+
+    queryset = Topic.objects.select_related("lecture").annotate(question_count=Count("questions"))
+    serializer_class = TopicSerializer
+    filterset_class = TopicFilter
+    search_fields = ["title", "keywords"]
+    ordering_fields = ["order", "title", "question_count", "created_at"]
+    ordering = ["lecture_id", "order", "id"]
+
+    @extend_schema(
+        summary="List questions of a topic",
+        description="Questions tagged with this topic, in screen order (most upvoted first, answered last). Paginated.",
+        responses=QuestionSerializer(many=True),
+    )
+    @action(detail=True, methods=["get"], serializer_class=QuestionSerializer, filter_backends=[])
+    def questions(self, request, pk=None):
+        topic = self.get_object()
+        voter_id, is_new = get_voter(request)
+        queryset = with_votes(Question.objects.filter(topic=topic), voter_id).order_by("is_answered", "-votes", "created_at")
+        page = self.paginate_queryset(queryset)
+        serializer = QuestionSerializer(page, many=True, context=self.get_serializer_context())
+        return remember_voter(self.get_paginated_response(serializer.data), voter_id, is_new)
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +328,51 @@ class QuestionViewSet(
         question.save(update_fields=["is_answered"])
         return Response({"id": question.id, "is_answered": question.is_answered})
 
+    @extend_schema(
+        methods=["GET"],
+        summary="Get the written answer",
+        description="The lecturer's answer to this question (one-to-one). 404 while there is none.",
+        responses={200: AnswerSerializer},
+    )
+    @extend_schema(
+        methods=["PUT"],
+        summary="Write or replace the answer",
+        description="Creates the answer (201) or replaces the existing one (200) and marks the question as answered.",
+        request=AnswerSerializer,
+        responses={200: AnswerSerializer, 201: AnswerSerializer},
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Delete the answer",
+        description="Removes the written answer and reopens the question (`is_answered = false`).",
+        responses={204: None},
+    )
+    @action(detail=True, methods=["get", "put", "delete"], serializer_class=AnswerSerializer, filter_backends=[])
+    def answer(self, request, pk=None):
+        question = self.get_object()
+        existing = Answer.objects.filter(question=question).first()
+
+        if request.method == "GET":
+            if existing is None:
+                raise NotFound("This question has no answer yet.")
+            return Response(AnswerSerializer(existing).data)
+
+        if request.method == "DELETE":
+            if existing is None:
+                raise NotFound("This question has no answer yet.")
+            with transaction.atomic():
+                existing.delete()
+                Question.objects.filter(pk=question.pk).update(is_answered=False)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = AnswerSerializer(existing, data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            answer = serializer.save(question=question)
+            Question.objects.filter(pk=question.pk).update(is_answered=True)
+        created = existing is None
+        return Response(AnswerSerializer(answer).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
 
 # ---------------------------------------------------------------------------
 # Service endpoints
@@ -279,6 +414,7 @@ def api_root(request, format=None):
             "schema": reverse("qa:schema", request=request, format=format),
             "health": reverse("qa:health", request=request, format=format),
             "lectures": reverse("qa:lecture-list", request=request, format=format),
+            "topics": reverse("qa:topic-list", request=request, format=format),
             "questions": reverse("qa:question-list", request=request, format=format),
         }
     )

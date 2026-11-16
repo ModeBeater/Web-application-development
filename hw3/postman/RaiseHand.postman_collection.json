@@ -1,8 +1,8 @@
 {
   "info": {
-    "_postman_id": "b7a71e28-d8f4-4db8-9662-2eb6168653f2",
+    "_postman_id": "61bd0c4e-6fb6-4f8c-873f-0b4c7e13b0ce",
     "name": "Raise Hand API (HW3 · DRF)",
-    "description": "Live Q&A for lectures — Django REST Framework + PostgreSQL in Docker Compose.\n\nRun the folders in order (or the whole collection with the Collection Runner / newman): folder 1 creates a lecture and stores its id/code in collection variables, folder 2 creates, edits and deletes a question in it, folder 3 deletes the lecture, folder 4 shows the error responses.\n\nVariables: baseUrl (default http://localhost:8000), voter (identifies the upvoter), lecture_id / lecture_code / question_id (filled automatically).\n\nDocs: {{baseUrl}}/docs/ (Swagger UI), docs/API.md in the repository.",
+    "description": "Live Q&A for lectures — Django REST Framework + PostgreSQL in Docker Compose.\n\nRun the folders in order (or the whole collection with the Collection Runner / newman): folder 1 creates a lecture and stores its id/code in collection variables, folder 2 creates, edits and deletes a question in it, folder 3 adds topics (one-to-many) and a written answer (one-to-one), folder 4 deletes the lecture, folder 5 shows the error responses.\n\nVariables: baseUrl (default http://localhost:8000), voter (identifies the upvoter), lecture_id / lecture_code / question_id / topic_id / tagged_question_id (filled automatically).\n\nDocs: {{baseUrl}}/docs/ (Swagger UI), docs/API.md in the repository.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -1125,7 +1125,861 @@
       ]
     },
     {
-      "name": "3 · Delete lecture",
+      "name": "3 · Topics & answers (one-to-many, one-to-one)",
+      "description": "New in this version: Topic (Lecture 1→* Topic, Topic 1→* Question) and Answer (Question 1→1 Answer). Create topics → tag a question → write/replace/delete the answer → delete the topic.",
+      "item": [
+        {
+          "name": "Add topic to the lecture",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": "Lecture 1 → * Topic: a topic is created inside a lecture (ForeignKey, CASCADE). The id is stored for the next requests.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Images and layers\",\n  \"keywords\": \"image, layer, cache, build\",\n  \"order\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Topic belongs to our lecture\", () => { const b = pm.response.json(); pm.expect(b.lecture_id).to.eql(Number(pm.collectionVariables.get(\"lecture_id\"))); pm.expect(b.question_count).to.eql(0); });",
+                  "pm.collectionVariables.set(\"topic_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add second topic",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Networking\",\n  \"keywords\": \"port, expose, publish, network\",\n  \"order\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"topic2_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List topics of the lecture",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Two topics in plan order\", () => { const b = pm.response.json(); pm.expect(b.count).to.eql(2); pm.expect(b.results.map(t => t.title)).to.eql([\"Images and layers\", \"Networking\"]); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List all topics — filtered by lecture code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/?lecture={{lecture_code}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "lecture",
+                  "value": "{{lecture_code}}"
+                }
+              ]
+            },
+            "description": "Every topic in the database; ?lecture=<id|code>, ?search=, ?ordering=order|title|question_count, pagination."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Same two topics via the global list\", () => pm.expect(pm.response.json().count).to.eql(2));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get topic by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/{{topic_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Has lecture_code and keywords\", () => { const b = pm.response.json(); pm.expect(b.lecture_code).to.eql(pm.collectionVariables.get(\"lecture_code\")); pm.expect(b.keywords).to.include(\"layer\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update topic (PATCH keywords)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/{{topic_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"keywords\": \"Image, Layer, Dockerfile, FROM\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Keywords normalized to lower case\", () => pm.expect(pm.response.json().keywords).to.eql(\"image, layer, dockerfile, from\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask question tagged with the topic",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "topic_id is optional and must belong to the same lecture (see folder 5 for the 400).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Why does changing one line rebuild all the layers after it?\",\n  \"author\": \"Aigerim\",\n  \"topic_id\": \"{{topic_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Tagged with our topic\", () => { const b = pm.response.json(); pm.expect(b.topic_id).to.eql(Number(pm.collectionVariables.get(\"topic_id\"))); pm.expect(b.topic_title).to.eql(\"Images and layers\"); pm.expect(b.answer).to.eql(null); });",
+                  "pm.collectionVariables.set(\"tagged_question_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Questions of the topic",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/{{topic_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "Related data the other way round: Topic → its questions, in screen order."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Contains the tagged question\", () => { const b = pm.response.json(); pm.expect(b.count).to.eql(1); pm.expect(b.results[0].id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All questions — filtered by topic",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?topic={{topic_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "topic",
+                  "value": "{{topic_id}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"One question for the topic\", () => pm.expect(pm.response.json().count).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get lecture — topics are embedded",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"topic_count and topics[] present\", () => { const b = pm.response.json(); pm.expect(b.topic_count).to.eql(2); pm.expect(b.topics.length).to.eql(2); pm.expect(b.topics[0].question_count).to.eql(1); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Write the answer (PUT → 201)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": "Question 1 → 1 Answer (OneToOneField, CASCADE). The first PUT creates (201) and marks the question answered.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Each instruction is a layer; a changed layer invalidates the cache of every layer below it.\",\n  \"author\": \"Nurkhan Tashimov\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Answer references the question\", () => pm.expect(pm.response.json().question_id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get the answer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Text and author\", () => { const b = pm.response.json(); pm.expect(b.text).to.include(\"layer\"); pm.expect(b.author).to.eql(\"Nurkhan Tashimov\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replace the answer (PUT → 200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Docker caches layers top to bottom: copy requirements.txt before the source so pip install stays cached.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Still one answer row\", () => pm.expect(pm.response.json().question_id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get question — answer embedded, is_answered = true",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Embedded answer\", () => { const b = pm.response.json(); pm.expect(b.is_answered).to.be.true; pm.expect(b.answer.text).to.include(\"cache\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Questions with a written answer (?has_answer=true)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?lecture={{lecture_code}}&has_answer=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "lecture",
+                  "value": "{{lecture_code}}"
+                },
+                {
+                  "key": "has_answer",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Exactly our answered question\", () => { const b = pm.response.json(); pm.expect(b.count).to.eql(1); pm.expect(b.results[0].id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete the answer → 204, question reopened",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get deleted answer → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"detail explains\", () => pm.expect(pm.response.json().detail).to.include(\"no answer\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete topic → 204 (questions keep, topic becomes null)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/{{topic_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}",
+                ""
+              ]
+            },
+            "description": "Topic → Question is SET_NULL: the audience's questions survive a change of the lecture plan."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get question after topic deletion — topic_id is null",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Untagged but alive\", () => { const b = pm.response.json(); pm.expect(b.topic_id).to.eql(null); pm.expect(b.is_answered).to.be.false; });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4 · Delete lecture",
       "description": "Removes everything the collection created, so it can be run again.",
       "item": [
         {
@@ -1150,7 +2004,7 @@
                 ""
               ]
             },
-            "description": "Deletes the demo lecture; its remaining questions and upvotes are removed by cascade."
+            "description": "Deletes the demo lecture; its remaining topics, questions, upvotes and answers are removed by cascade."
           },
           "response": [],
           "event": [
@@ -1208,7 +2062,7 @@
       ]
     },
     {
-      "name": "4 · Validation & errors",
+      "name": "5 · Validation & errors",
       "description": "Requests that are supposed to fail, to show the error format.",
       "item": [
         {
@@ -1404,6 +2258,195 @@
           ]
         },
         {
+          "name": "Duplicate topic title in the demo lecture → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/KBTU26/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "KBTU26",
+                "topics",
+                ""
+              ]
+            },
+            "description": "KBTU26 already has the topic 'Dart language' (seed migration); the (lecture, title) pair is unique.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"dart LANGUAGE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Unique per lecture, case-insensitive\", () => pm.expect(pm.response.json().title[0]).to.include(\"already has\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Demo lecture topics (to borrow a foreign topic id)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/?lecture=KBTU26",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "lecture",
+                  "value": "KBTU26"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"demo_topic_id\", pm.response.json().results[0].id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Question tagged with a topic of another lecture → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/FLT108/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "FLT108",
+                "questions",
+                ""
+              ]
+            },
+            "description": "FLT108 is an open demo lecture; the topic comes from KBTU26, so the serializer rejects it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Does this topic belong here?\",\n  \"topic_id\": \"{{demo_topic_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"topic_id rejected\", () => pm.expect(pm.response.json().topic_id[0]).to.include(\"another lecture\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Answer of a question without one → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/1/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "1",
+                "answer",
+                ""
+              ]
+            },
+            "description": "Question 1 of the demo lecture has no written answer (question 2 has)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Wrong method → 405",
           "request": {
             "method": "DELETE",
@@ -1523,7 +2566,7 @@
                 "exec": [
                   "// Assertions run after the response arrives (see the Test Results tab).",
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Describes all 10 paths\", () => pm.expect(Object.keys(pm.response.json().paths)).to.have.lengthOf(10));"
+                  "pm.test(\"Describes all 15 paths\", () => pm.expect(Object.keys(pm.response.json().paths)).to.have.lengthOf(15));"
                 ]
               }
             }
@@ -1555,6 +2598,26 @@
     },
     {
       "key": "question_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "topic_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "topic2_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tagged_question_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "demo_topic_id",
       "value": "",
       "type": "string"
     }

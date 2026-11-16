@@ -7,10 +7,14 @@ from . import api, views
 app_name = "qa"
 
 # The router turns each ViewSet into URL patterns:
-#   lectures  -> /api/lectures/, /api/lectures/{key}/, /api/lectures/{key}/toggle/, /api/lectures/{key}/questions/
-#   questions -> /api/questions/, /api/questions/{id}/, /api/questions/{id}/upvote/, /api/questions/{id}/answered/
+#   lectures  -> /api/lectures/, /api/lectures/{key}/, /api/lectures/{key}/toggle/, /api/lectures/{key}/questions/,
+#                /api/lectures/{key}/topics/
+#   topics    -> /api/topics/, /api/topics/{id}/, /api/topics/{id}/questions/
+#   questions -> /api/questions/, /api/questions/{id}/, /api/questions/{id}/upvote/, /api/questions/{id}/answered/,
+#                /api/questions/{id}/answer/
 router = SimpleRouter()
 router.register("lectures", api.LectureViewSet, basename="lecture")
+router.register("topics", api.TopicViewSet, basename="topic")
 router.register("questions", api.QuestionViewSet, basename="question")
 
 urlpatterns = [

@@ -306,6 +306,77 @@ paths:
               schema:
                 $ref: '#/components/schemas/ToggleResult'
           description: ''
+  /api/lectures/{key}/topics/:
+    get:
+      operationId: lectures_topics_list
+      description: 'The lecture plan: topics in order, each with its number of tagged
+        questions.'
+      summary: List topics of a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - lectures
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTopicList'
+          description: ''
+    post:
+      operationId: lectures_topics_create
+      description: One lecture has many topics (one-to-many). The title must be unique
+        within the lecture.
+      summary: Add a topic to a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
   /api/questions/:
     get:
       operationId: questions_list
@@ -314,6 +385,12 @@ paths:
         page with `?limit=&offset=`.
       summary: List all questions
       parameters:
+      - in: query
+        name: has_answer
+        schema:
+          type: boolean
+        description: true = only questions with a written answer, false = without
+          one
       - in: query
         name: is_answered
         schema:
@@ -348,6 +425,11 @@ paths:
         description: A search term.
         schema:
           type: string
+      - in: query
+        name: topic
+        schema:
+          type: number
+        description: Only questions tagged with this topic id
       tags:
       - questions
       security:
@@ -470,6 +552,90 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/questions/{id}/answer/:
+    get:
+      operationId: questions_answer_retrieve
+      description: The lecturer's answer to this question (one-to-one). 404 while
+        there is none.
+      summary: Get the written answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+          description: ''
+    put:
+      operationId: questions_answer_update
+      description: Creates the answer (201) or replaces the existing one (200) and
+        marks the question as answered.
+      summary: Write or replace the answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+          description: ''
+    delete:
+      operationId: questions_answer_destroy
+      description: Removes the written answer and reopens the question (`is_answered
+        = false`).
+      summary: Delete the answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
   /api/questions/{id}/answered/:
     post:
       operationId: questions_answered_create
@@ -529,6 +695,200 @@ paths:
               schema:
                 $ref: '#/components/schemas/UpvoteResult'
           description: ''
+  /api/topics/:
+    get:
+      operationId: topics_list
+      description: Topics of every lecture; filter with `?lecture=<id|code>`, page
+        with `?limit=&offset=`.
+      summary: List all topics
+      parameters:
+      - in: query
+        name: lecture
+        schema:
+          type: string
+        description: Lecture id or join code
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - topics
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTopicList'
+          description: ''
+  /api/topics/{id}/:
+    get:
+      operationId: topics_retrieve
+      description: 'Read / update / delete topics. They are created inside a lecture:
+        POST /api/lectures/{key}/topics/.'
+      summary: Get a topic by id
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+    put:
+      operationId: topics_update
+      description: 'Read / update / delete topics. They are created inside a lecture:
+        POST /api/lectures/{key}/topics/.'
+      summary: Replace a topic (PUT)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+    patch:
+      operationId: topics_partial_update
+      description: 'Read / update / delete topics. They are created inside a lecture:
+        POST /api/lectures/{key}/topics/.'
+      summary: Update part of a topic (PATCH)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTopicRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTopicRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTopicRequest'
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+    delete:
+      operationId: topics_destroy
+      description: The lecture's questions stay; their `topic_id` becomes null (SET_NULL).
+      summary: Delete a topic
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/topics/{id}/questions/:
+    get:
+      operationId: topics_questions_list
+      description: Questions tagged with this topic, in screen order (most upvoted
+        first, answered last). Paginated.
+      summary: List questions of a topic
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - topics
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestionList'
+          description: ''
   /health/:
     get:
       operationId: health
@@ -553,6 +913,53 @@ paths:
           description: ''
 components:
   schemas:
+    Answer:
+      type: object
+      description: The lecturer's written answer; one per question (OneToOneField).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        question_id:
+          type: integer
+          readOnly: true
+        text:
+          type: string
+          description: 1–2000 characters
+          maxLength: 2000
+        author:
+          type: string
+          description: Who answered (free text)
+          maxLength: 40
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - question_id
+      - text
+      - updated_at
+    AnswerRequest:
+      type: object
+      description: The lecturer's written answer; one per question (OneToOneField).
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 1–2000 characters
+          maxLength: 2000
+        author:
+          type: string
+          description: Who answered (free text)
+          maxLength: 40
+      required:
+      - text
     AnsweredResult:
       type: object
       properties:
@@ -582,6 +989,9 @@ components:
         lectures:
           type: string
           format: uri
+        topics:
+          type: string
+          format: uri
         questions:
           type: string
           format: uri
@@ -592,6 +1002,7 @@ components:
       - name
       - questions
       - schema
+      - topics
       - version
     Health:
       type: object
@@ -625,6 +1036,11 @@ components:
         question_count:
           type: integer
           readOnly: true
+        topic_count:
+          type: integer
+          readOnly: true
+          default: 0
+          description: Number of topics in the lecture plan
         created_at:
           type: string
           format: date-time
@@ -647,10 +1063,11 @@ components:
       - question_count
       - screen_url
       - title
+      - topic_count
     LectureDetail:
       type: object
-      description: 'GET /api/lectures/{key}/: the lecture plus its questions in screen
-        order.'
+      description: 'GET /api/lectures/{key}/: the lecture plus its topics and its
+        questions in screen order.'
       properties:
         id:
           type: integer
@@ -669,6 +1086,11 @@ components:
         question_count:
           type: integer
           readOnly: true
+        topic_count:
+          type: integer
+          readOnly: true
+          default: 0
+          description: Number of topics in the lecture plan
         created_at:
           type: string
           format: date-time
@@ -683,6 +1105,11 @@ components:
           format: uri
           readOnly: true
           description: Projector page
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+          readOnly: true
         questions:
           type: array
           items:
@@ -697,6 +1124,8 @@ components:
       - questions
       - screen_url
       - title
+      - topic_count
+      - topics
     LectureRequest:
       type: object
       description: A lecture as the API shows it. `code`, `created_at` and the URLs
@@ -758,6 +1187,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Question'
+    PaginatedTopicList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
     PatchedLectureRequest:
       type: object
       description: A lecture as the API shows it. `code`, `created_at` and the URLs
@@ -776,6 +1228,11 @@ components:
       description: A question with its vote count. `voter` is write-only and optional
         (see voters.py).
       properties:
+        topic_id:
+          type: integer
+          nullable: true
+          description: Tag the question with a topic of the same lecture (null = no
+            topic)
         text:
           type: string
           minLength: 1
@@ -794,6 +1251,25 @@ components:
           description: Optional explicit voter id; otherwise the `voter` cookie is
             used (and created)
           maxLength: 36
+    PatchedTopicRequest:
+      type: object
+      description: A sub-topic of a lecture. `lecture_id` is set from the URL on create
+        and read-only afterwards.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters, unique within the lecture
+          maxLength: 120
+        keywords:
+          type: string
+          description: Comma-separated hints used to tag questions
+          maxLength: 300
+        order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Position in the lecture plan
     Question:
       type: object
       description: A question with its vote count. `voter` is write-only and optional
@@ -808,6 +1284,15 @@ components:
         lecture_code:
           type: string
           readOnly: true
+        topic_id:
+          type: integer
+          nullable: true
+          description: Tag the question with a topic of the same lecture (null = no
+            topic)
+        topic_title:
+          type: string
+          readOnly: true
+          nullable: true
         text:
           type: string
           description: 1–500 characters
@@ -829,16 +1314,24 @@ components:
           description: Whether the calling voter has upvoted it
         is_answered:
           type: boolean
+        answer:
+          allOf:
+          - $ref: '#/components/schemas/Answer'
+          readOnly: true
+          nullable: true
+          description: The lecturer's written answer, or null
         created_at:
           type: string
           format: date-time
           readOnly: true
       required:
+      - answer
       - created_at
       - id
       - lecture_code
       - lecture_id
       - text
+      - topic_title
       - voted
       - votes
     QuestionRequest:
@@ -846,6 +1339,11 @@ components:
       description: A question with its vote count. `voter` is write-only and optional
         (see voters.py).
       properties:
+        topic_id:
+          type: integer
+          nullable: true
+          description: Tag the question with a topic of the same lecture (null = no
+            topic)
         text:
           type: string
           minLength: 1
@@ -879,6 +1377,69 @@ components:
       - code
       - id
       - is_open
+    Topic:
+      type: object
+      description: A sub-topic of a lecture. `lecture_id` is set from the URL on create
+        and read-only afterwards.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lecture_id:
+          type: integer
+          readOnly: true
+        lecture_code:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          description: 3–120 characters, unique within the lecture
+          maxLength: 120
+        keywords:
+          type: string
+          description: Comma-separated hints used to tag questions
+          maxLength: 300
+        order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Position in the lecture plan
+        question_count:
+          type: integer
+          readOnly: true
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - lecture_code
+      - lecture_id
+      - question_count
+      - title
+    TopicRequest:
+      type: object
+      description: A sub-topic of a lecture. `lecture_id` is set from the URL on create
+        and read-only afterwards.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters, unique within the lecture
+          maxLength: 120
+        keywords:
+          type: string
+          description: Comma-separated hints used to tag questions
+          maxLength: 300
+        order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Position in the lecture plan
+      required:
+      - title
     UpvoteRequestRequest:
       type: object
       properties:

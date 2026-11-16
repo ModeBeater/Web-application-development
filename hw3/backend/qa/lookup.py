@@ -20,7 +20,7 @@ def find_lecture(queryset: QuerySet, key: str) -> Lecture:
 
 def with_votes(queryset: QuerySet, voter_id: str | None = None) -> QuerySet:
     """Annotate questions with their vote count and whether this voter has voted."""
-    queryset = queryset.select_related("lecture").annotate(votes=Count("upvotes", distinct=True))
+    queryset = queryset.select_related("lecture", "topic", "answer").annotate(votes=Count("upvotes", distinct=True))
     if voter_id is not None:
         my_vote = Upvote.objects.filter(question=OuterRef("pk"), voter_id=voter_id)
         queryset = queryset.annotate(voted=Exists(my_vote))
@@ -30,3 +30,8 @@ def with_votes(queryset: QuerySet, voter_id: str | None = None) -> QuerySet:
 def questions_for(lecture: Lecture, voter_id: str | None = None) -> QuerySet:
     """Questions of a lecture in screen order: most wanted first, answered ones at the bottom."""
     return with_votes(Question.objects.filter(lecture=lecture), voter_id).order_by("is_answered", "-votes", "created_at")
+
+
+def topics_for(lecture: Lecture) -> QuerySet:
+    """Topics of a lecture in plan order, each with its number of questions."""
+    return lecture.topics.annotate(question_count=Count("questions")).order_by("order", "id")

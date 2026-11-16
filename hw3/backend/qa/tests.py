@@ -8,7 +8,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from . import tunnel
-from .models import Lecture, Question, Upvote
+from .models import Answer, Lecture, Question, Topic, Upvote
 
 DEMO_CODE = "KBTU26"  # created by the seed migration
 
@@ -18,7 +18,7 @@ class LectureApiTests(APITestCase):
 
     def test_api_root_links_everything(self):
         data = self.client.get(reverse("qa:api-root")).json()
-        self.assertEqual(data["version"], "2.0")
+        self.assertEqual(data["version"], "2.1")
         self.assertTrue(data["docs"].endswith("/docs/"))
         self.assertTrue(data["lectures"].endswith("/api/lectures/"))
 
@@ -166,7 +166,12 @@ class QuestionApiTests(APITestCase):
         self.assertEqual(self.client.get(url, {"lecture": "NOPE42"}).status_code, 404)
 
         answered = self.client.get(url, {"is_answered": "true"}).json()
-        self.assertEqual([q["text"] for q in answered["results"]], ["Other lecture question"])
+        self.assertEqual(
+            [q["text"] for q in answered["results"]],
+            ["Other lecture question", "Can I build iOS apps with Flutter on Windows?"],  # the latter has a seeded Answer
+        )
+        self.assertEqual(self.client.get(url, {"has_answer": "true"}).json()["count"], 1)
+        self.assertEqual(self.client.get(url, {"has_answer": "false"}).json()["count"], 3)
 
         self.assertEqual(self.client.get(url, {"search": "other"}).json()["count"], 1)
         most_voted = self.client.get(url, {"ordering": "-votes"}).json()
@@ -213,9 +218,136 @@ class QuestionApiTests(APITestCase):
         self.assertEqual((detail["questions"][0]["id"], detail["questions"][0]["votes"]), (last.id, 3))
 
     def test_answered_questions_sink_to_the_bottom(self):
+        detail = self.client.get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
+        self.assertEqual(detail["questions"][0]["id"], self.first.id)  # most voted, not answered yet
         self.assertEqual(self.client.post(reverse("qa:question-answered", args=[self.first.id])).json(), {"id": self.first.id, "is_answered": True})
         detail = self.client.get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
-        self.assertEqual(detail["questions"][-1]["id"], self.first.id)
+        flags = [q["is_answered"] for q in detail["questions"]]
+        self.assertEqual(flags, sorted(flags))                       # open questions first, answered ones last
+        self.assertEqual(detail["questions"][-2]["id"], self.first.id)  # among the answered: more votes first
+
+
+class TopicApiTests(APITestCase):
+    """Topics: one lecture -> many topics (FK CASCADE); a question may be tagged with a topic of its lecture."""
+
+    def setUp(self):
+        self.lecture = Lecture.objects.get(code=DEMO_CODE)
+        self.topic = self.lecture.topics.first()           # "Dart language" from the seed migration
+        self.other = Lecture.objects.create(title="Another lecture")
+        self.other_topic = Topic.objects.create(lecture=self.other, title="Foreign topic")
+
+    def test_lecture_lists_its_topics_with_question_counts(self):
+        data = self.client.get(reverse("qa:lecture-topics", args=[DEMO_CODE])).json()
+        self.assertEqual(data["count"], 3)
+        self.assertEqual([t["title"] for t in data["results"]], ["Dart language", "Tooling and setup", "Platforms"])
+        self.assertEqual(data["results"][0]["question_count"], 1)
+        detail = self.client.get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
+        self.assertEqual(detail["topic_count"], 3)
+        self.assertEqual(len(detail["topics"]), 3)
+
+    def test_create_topic_inside_lecture_validates_and_normalizes(self):
+        url = reverse("qa:lecture-topics", args=[DEMO_CODE])
+        response = self.client.post(url, {"title": "  Hot   reload ", "keywords": "Hot Reload, restart , "}, format="json")
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual((data["title"], data["keywords"], data["lecture_code"]), ("Hot reload", "hot reload, restart", DEMO_CODE))
+        self.assertEqual(Topic.objects.get(pk=data["id"]).lecture_id, self.lecture.id)
+        # same title again -> field error, not a 500 from the unique constraint
+        self.assertEqual(self.client.post(url, {"title": "hot reload"}, format="json").status_code, 400)
+        self.assertIn("title", self.client.post(url, {"title": "ab"}, format="json").json())
+        self.assertEqual(self.client.post(reverse("qa:lecture-topics", args=["NOPE42"]), {"title": "x"}, format="json").status_code, 404)
+
+    def test_topic_crud_and_filters(self):
+        url = reverse("qa:topic-detail", args=[self.topic.id])
+        self.assertEqual(self.client.get(url).json()["title"], "Dart language")
+        self.assertEqual(self.client.patch(url, {"keywords": "dart, null-safety"}, format="json").json()["keywords"], "dart, null-safety")
+        self.assertEqual(self.client.put(url, {"title": "Dart", "order": 5}, format="json").json()["order"], 5)
+        self.assertEqual(self.client.get(reverse("qa:topic-list"), {"lecture": DEMO_CODE.lower()}).json()["count"], 3)
+        self.assertEqual(self.client.get(reverse("qa:topic-list"), {"lecture": "NOPE42"}).status_code, 404)
+        self.assertEqual(self.client.get(reverse("qa:topic-detail", args=[9999])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("qa:topic-list"), {"title": "x"}, format="json").status_code, 405)
+
+    def test_topic_questions_endpoint_and_question_filter(self):
+        data = self.client.get(reverse("qa:topic-questions", args=[self.topic.id])).json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["topic_title"], "Dart language")
+        filtered = self.client.get(reverse("qa:question-list"), {"topic": self.topic.id}).json()
+        self.assertEqual(filtered["count"], 1)
+        self.assertEqual(self.client.get(reverse("qa:question-list"), {"topic": "abc"}).status_code, 400)
+
+    def test_question_can_only_be_tagged_with_a_topic_of_its_lecture(self):
+        url = reverse("qa:lecture-questions", args=[DEMO_CODE])
+        bad = self.client.post(url, {"text": "Wrong topic?", "topic_id": self.other_topic.id}, format="json")
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(bad.json(), {"topic_id": ["This topic belongs to another lecture."]})
+        self.assertEqual(self.client.post(url, {"text": "Missing topic?", "topic_id": 9999}, format="json").status_code, 400)
+
+        good = self.client.post(url, {"text": "Is Dart similar to Kotlin?", "topic_id": self.topic.id}, format="json")
+        self.assertEqual(good.status_code, 201)
+        self.assertEqual((good.json()["topic_id"], good.json()["topic_title"]), (self.topic.id, "Dart language"))
+        # re-tag, un-tag, and a foreign topic on PATCH
+        detail = reverse("qa:question-detail", args=[good.json()["id"]])
+        self.assertEqual(self.client.patch(detail, {"topic_id": None}, format="json").json()["topic_title"], None)
+        self.assertEqual(self.client.patch(detail, {"topic_id": self.other_topic.id}, format="json").status_code, 400)
+
+    def test_deleting_topic_keeps_questions_and_deleting_lecture_cascades(self):
+        question = self.topic.questions.first()
+        self.assertEqual(self.client.delete(reverse("qa:topic-detail", args=[self.topic.id])).status_code, 204)
+        question.refresh_from_db()
+        self.assertIsNone(question.topic_id)                       # SET_NULL: the question survives
+        self.assertTrue(Question.objects.filter(pk=question.pk).exists())
+
+        Topic.objects.create(lecture=self.other, title="Second")
+        self.assertEqual(self.other.topics.count(), 2)
+        self.client.delete(reverse("qa:lecture-detail", args=[self.other.id]))
+        self.assertEqual(Topic.objects.filter(lecture_id=self.other.id).count(), 0)   # CASCADE
+
+
+class AnswerApiTests(APITestCase):
+    """Answer: one question -> one written answer (OneToOneField CASCADE)."""
+
+    def setUp(self):
+        self.lecture = Lecture.objects.get(code=DEMO_CODE)
+        self.answered = Question.objects.get(lecture=self.lecture, answer__isnull=False)   # from the seed migration
+        self.open = Question.objects.filter(lecture=self.lecture, answer__isnull=True).first()
+
+    def test_seeded_answer_is_embedded_in_the_question(self):
+        data = self.client.get(reverse("qa:question-detail", args=[self.answered.id])).json()
+        self.assertTrue(data["is_answered"])
+        self.assertIn("Xcode", data["answer"]["text"])
+        self.assertEqual(data["answer"]["question_id"], self.answered.id)
+        open_data = self.client.get(reverse("qa:question-detail", args=[self.open.id])).json()
+        self.assertIsNone(open_data["answer"])
+
+    def test_put_creates_then_replaces_the_answer_and_marks_answered(self):
+        url = reverse("qa:question-answer", args=[self.open.id])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.put(url, {"text": "   "}, format="json").status_code, 400)
+
+        created = self.client.put(url, {"text": "Yes - the basics are enough.", "author": "Lecturer"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.open.refresh_from_db()
+        self.assertTrue(self.open.is_answered)
+        self.assertEqual(Answer.objects.filter(question=self.open).count(), 1)
+
+        replaced = self.client.put(url, {"text": "Updated answer"}, format="json")
+        self.assertEqual(replaced.status_code, 200)
+        self.assertEqual(replaced.json()["id"], created.json()["id"])          # still one row (one-to-one)
+        self.assertEqual(self.client.get(url).json()["text"], "Updated answer")
+        self.assertEqual(self.client.get(reverse("qa:question-list"), {"lecture": DEMO_CODE, "has_answer": "true"}).json()["count"], 2)
+
+    def test_delete_answer_reopens_question_and_404_without_answer(self):
+        url = reverse("qa:question-answer", args=[self.answered.id])
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.answered.refresh_from_db()
+        self.assertFalse(self.answered.is_answered)
+        self.assertEqual(self.client.delete(url).status_code, 404)
+        self.assertEqual(self.client.get(reverse("qa:question-answer", args=[9999])).status_code, 404)
+
+    def test_deleting_question_cascades_to_its_answer(self):
+        answer_id = self.answered.answer.id
+        self.assertEqual(self.client.delete(reverse("qa:question-detail", args=[self.answered.id])).status_code, 204)
+        self.assertFalse(Answer.objects.filter(pk=answer_id).exists())
 
 
 class DocsTests(APITestCase):
@@ -227,7 +359,8 @@ class DocsTests(APITestCase):
         for route in (
             "/api/:", "/health/:", "/api/lectures/:", "/api/lectures/{key}/:", "/api/lectures/{key}/toggle/:",
             "/api/lectures/{key}/questions/:", "/api/questions/:", "/api/questions/{id}/:",
-            "/api/questions/{id}/upvote/:", "/api/questions/{id}/answered/:",
+            "/api/questions/{id}/upvote/:", "/api/questions/{id}/answered/:", "/api/questions/{id}/answer/:",
+            "/api/lectures/{key}/topics/:", "/api/topics/:", "/api/topics/{id}/:", "/api/topics/{id}/questions/:",
         ):
             self.assertIn(route, spec)
         self.assertEqual(self.client.get(reverse("qa:schema"), {"format": "json"})["Content-Type"].split(";")[0], "application/vnd.oai.openapi+json")
@@ -258,6 +391,10 @@ class SeedDemoTests(TestCase):
         self.assertEqual(Lecture.objects.filter(code__startswith="FLT").count(), 8)
         self.assertGreaterEqual(Question.objects.count(), 100)
         self.assertGreater(Upvote.objects.count(), 100)
+        self.assertEqual(Topic.objects.filter(lecture__code__startswith="FLT").count(), 24)
+        self.assertEqual(Answer.objects.filter(question__lecture__code__startswith="FLT").count(), 8)
+        self.assertGreater(Question.objects.filter(topic__isnull=False).count(), 90)
+        self.assertTrue(all(q.is_answered for q in Question.objects.filter(answer__isnull=False)))
         self.assertTrue(Question.objects.filter(is_answered=True).exists())
 
         questions_before = Question.objects.count()

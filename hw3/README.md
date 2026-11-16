@@ -36,19 +36,25 @@ docker compose up --build
 | Audience page (ask, upvote) | <http://localhost:8000/l/KBTU26/> |
 | Projector page (QR code, live board, mark answered) | <http://localhost:8000/l/KBTU26/screen/> |
 
-A demo lecture with code `KBTU26` is created by a data migration on the first start, and with `SEED_DEMO=1` (the default in `.env.example`) the container also loads 8 more lectures with 104 questions and ~270 upvotes, so `GET /api/questions/` returns 100+ records right away.
+A demo lecture with code `KBTU26` (3 topics, 3 questions, 1 written answer) is created by data migrations on the first start, and with `SEED_DEMO=1` (the default in `.env.example`) the container also loads 8 more lectures with 24 topics, 104 tagged questions, 8 answers and ~270 upvotes, so `GET /api/questions/` returns 100+ records right away.
 
 Stop with `Ctrl+C`, remove the containers with `docker compose down` (the data stays, see below).
 
-## Data models (three related models, two one-to-many relationships)
+## Data models (five models, four relationships)
 
 ```text
 Lecture (title, code, is_open, created_at)
-   └── Question (lecture FK CASCADE, text, author, is_answered, created_at)
-          └── Upvote (question FK CASCADE, voter_id, created_at)   unique (question, voter_id)
+   ├── Topic (lecture FK CASCADE, title, keywords, order)          unique (lecture, title)   1 → N
+   └── Question (lecture FK CASCADE, topic FK SET_NULL, text, author, is_answered, created_at)   1 → N
+          ├── Upvote (question FK CASCADE, voter_id, created_at)   unique (question, voter_id)    1 → N
+          └── Answer (question OneToOne CASCADE, text, author, created_at, updated_at)           1 → 1
 ```
 
-`backend/qa/models.py`; migrations in `backend/qa/migrations/` (`0001` schema, `0002` demo lecture), applied by `entrypoint.sh` on start.
+* **One-to-many**: a lecture has many topics (its plan) and many questions; a question has many upvotes.
+* **One-to-one**: a question has at most one written answer — `OneToOneField`, so a second `INSERT` for the same question is impossible at the database level; the API exposes it as `PUT /api/questions/{id}/answer/` (create or replace).
+* **Cascade**: deleting a lecture removes its topics, questions, their upvotes and answers; deleting a question removes its upvotes and answer. The only exception is `Question.topic` (`SET_NULL`): a topic is a label on the lecture plan, not the owner of the audience's questions, so removing a topic keeps the questions and just untags them.
+
+`backend/qa/models.py`; migrations in `backend/qa/migrations/` (`0001` schema, `0002` demo lecture, `0003` topics + answers, `0004` demo topics), applied by `entrypoint.sh` on start.
 
 ## REST API (Django REST Framework)
 
@@ -60,20 +66,30 @@ Full reference with examples: **[`docs/API.md`](docs/API.md)**. Machine-readable
 | `GET` | `/health/` | App is up **and** can query the database; Docker `HEALTHCHECK` | 200 / 503 |
 | `GET` | `/api/lectures/` | **List** lectures — `?is_open=`, `?search=`, `?ordering=`, `?limit=&offset=` | 200 |
 | `POST` | `/api/lectures/` | **Create**: `{"title": "...", "is_open": true}` → join code | 201 |
-| `GET` | `/api/lectures/{key}/` | **Retrieve** by id or code, with its questions in screen order | 200 |
+| `GET` | `/api/lectures/{key}/` | **Retrieve** by id or code, with its topics and its questions in screen order | 200 |
 | `PUT` / `PATCH` | `/api/lectures/{key}/` | **Update** (full / partial) | 200 |
-| `DELETE` | `/api/lectures/{key}/` | **Delete** with its questions and upvotes | 204 |
+| `DELETE` | `/api/lectures/{key}/` | **Delete** with its topics, questions, upvotes and answers (cascade) | 204 |
 | `POST` | `/api/lectures/{key}/toggle/` | Open / close the lecture | 200 |
+| `GET` | `/api/lectures/{key}/topics/` | **List** the topics of one lecture (plan order, question counts) | 200 |
+| `POST` | `/api/lectures/{key}/topics/` | **Create** a topic: `{"title": "...", "keywords": "a, b", "order": 1}` | 201 |
+| `GET` | `/api/topics/` | **List** all topics — `?lecture=`, `?search=`, `?ordering=`, `?limit=&offset=` | 200 |
+| `GET` | `/api/topics/{id}/` | **Retrieve** | 200 |
+| `PUT` / `PATCH` | `/api/topics/{id}/` | **Update** (`title`, `keywords`, `order`) | 200 |
+| `DELETE` | `/api/topics/{id}/` | **Delete**; tagged questions stay, their `topic_id` becomes `null` | 204 |
+| `GET` | `/api/topics/{id}/questions/` | **List** the questions tagged with a topic (related data) | 200 |
 | `GET` | `/api/lectures/{key}/questions/` | **List** the questions of one lecture (paginated) | 200 |
-| `POST` | `/api/lectures/{key}/questions/` | **Create** a question: `{"text": "...", "author": "optional"}` | 201 / 409 if closed |
-| `GET` | `/api/questions/` | **List** all — `?lecture=`, `?is_answered=`, `?search=`, `?ordering=`, `?limit=&offset=` | 200 |
-| `GET` | `/api/questions/{id}/` | **Retrieve** | 200 |
-| `PUT` / `PATCH` | `/api/questions/{id}/` | **Update** (`text`, `author`, `is_answered`) | 200 |
-| `DELETE` | `/api/questions/{id}/` | **Delete** with its upvotes | 204 |
+| `POST` | `/api/lectures/{key}/questions/` | **Create** a question: `{"text": "...", "author": "optional", "topic_id": 3}` | 201 / 409 if closed |
+| `GET` | `/api/questions/` | **List** all — `?lecture=`, `?topic=`, `?is_answered=`, `?has_answer=`, `?search=`, `?ordering=`, `?limit=&offset=` | 200 |
+| `GET` | `/api/questions/{id}/` | **Retrieve** (with the embedded `answer` or `null`) | 200 |
+| `PUT` / `PATCH` | `/api/questions/{id}/` | **Update** (`text`, `author`, `is_answered`, `topic_id`) | 200 |
+| `DELETE` | `/api/questions/{id}/` | **Delete** with its upvotes and answer (cascade) | 204 |
 | `POST` | `/api/questions/{id}/upvote/` | Toggle the caller's upvote (voter = cookie, or `{"voter": "..."}`) | 200 |
 | `POST` | `/api/questions/{id}/answered/` | Toggle the answered flag | 200 |
+| `GET` | `/api/questions/{id}/answer/` | **Retrieve** the written answer (one-to-one) | 200 / 404 |
+| `PUT` | `/api/questions/{id}/answer/` | **Create or replace** the answer; marks the question answered | 201 / 200 |
+| `DELETE` | `/api/questions/{id}/answer/` | **Delete** the answer; reopens the question | 204 / 404 |
 
-Lists are paginated (`count / next / previous / results`). Errors follow DRF: validation → `{"title": ["Title must be at least 3 characters."]}`, everything else → `{"detail": "..."}` with `404`, `405`, `409`.
+30 endpoints. Lists are paginated (`count / next / previous / results`). Errors follow DRF: validation → `{"title": ["Title must be at least 3 characters."]}`, everything else → `{"detail": "..."}` with `404`, `405`, `409`.
 
 ```bash
 B=http://localhost:8000
@@ -83,7 +99,10 @@ curl -s $B/api/lectures/1/                       # same lecture as  $B/api/lectu
 curl -s -X PATCH $B/api/lectures/1/ -H 'Content-Type: application/json' -d '{"is_open":false}'
 curl -s -X POST $B/api/lectures/KBTU26/questions/ -H 'Content-Type: application/json' -d '{"text":"Does EXPOSE publish the port?","author":"Yevgeniy"}'
 curl -s "$B/api/questions/?ordering=-votes&limit=5"
-curl -i -s -X DELETE $B/api/questions/1/         # HTTP/1.1 204 No Content
+curl -s -X POST $B/api/lectures/KBTU26/topics/ -H 'Content-Type: application/json' -d '{"title":"Hot reload","keywords":"hot reload, restart"}'
+curl -s "$B/api/topics/1/questions/"             # questions tagged with topic 1
+curl -s -X PUT $B/api/questions/1/answer/ -H 'Content-Type: application/json' -d '{"text":"Only the basics of Dart are needed.","author":"Lecturer"}'
+curl -i -s -X DELETE $B/api/questions/1/         # HTTP/1.1 204 No Content (upvotes + answer go with it)
 ```
 
 ### How a request flows through DRF
@@ -102,13 +121,13 @@ curl -i -s -X DELETE $B/api/questions/1/         # HTTP/1.1 204 No Content
 
 ## Postman collection
 
-[`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) (Collection v2.1) — **33 requests with 67 assertions** covering every endpoint, plus [`postman/local.postman_environment.json`](postman/local.postman_environment.json) with `baseUrl = http://localhost:8000`.
+[`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) (Collection v2.1) — **56 requests with 108 assertions** covering every endpoint, plus [`postman/local.postman_environment.json`](postman/local.postman_environment.json) with `baseUrl = http://localhost:8000`.
 
 Import both (*File → Import*), select the "Raise Hand — local" environment and run the collection with the Collection Runner. The folders tell a story: **1** creates a lecture (its `id`/`code` are stored in collection variables by a test script) → reads it by id and by code → `PUT` → `PATCH` (closes it) → shows the `409` → reopens it; **2** creates a question → lists (paginated, filtered, ordered) → `PUT` → `PATCH` → upvotes twice (toggle) → marks answered → `DELETE` → `404`; **3** deletes the lecture; **4** shows the validation and error responses. Afterwards the database is as before, so the run is repeatable.
 
 ```bash
 npx newman run postman/RaiseHand.postman_collection.json -e postman/local.postman_environment.json
-# → 33 requests, 67 assertions, 0 failed
+# → 56 requests, 108 assertions, 0 failed
 ```
 
 ## Services (compose.yaml)
@@ -147,7 +166,7 @@ docker compose down        # containers and network removed, volume kept
 docker compose down -v     # removes the volume too: the only way to lose the data
 docker compose ps                                   # state and health of both services
 docker compose logs -f web                          # migrations, then gunicorn access log
-docker compose run --rm web python manage.py test   # 35 tests against a temporary PostgreSQL database
+docker compose run --rm web python manage.py test   # 45 tests against a temporary PostgreSQL database
 docker compose up -d --build                        # rebuild and recreate after a code change
 ```
 
@@ -157,15 +176,15 @@ docker compose up -d --build                        # rebuild and recreate after
 
 | Requirement | Where |
 | --- | --- |
-| At least 3 related data models / entities | `Lecture`, `Question`, `Upvote` — `backend/qa/models.py` |
-| At least 2 relationships between models, including at least one one-to-many | `Question.lecture` → `Lecture` (one lecture has many questions) and `Upvote.question` → `Question` (one question has many upvotes, one per voter — `UniqueConstraint(question, voter_id)`); both `on_delete=CASCADE` |
-| Relational database and an ORM | PostgreSQL 17 (`db` service, `psycopg`) + Django ORM: models, migrations (`backend/qa/migrations/`), annotated querysets (`backend/qa/lookup.py`) |
-| At least 10 API endpoints | 19 — 3 service (`/api/`, `/health/`, `/api/schema/`), 7 for lectures, 9 for questions; full table in [`docs/API.md`](docs/API.md) |
-| GET, POST, PUT/PATCH and DELETE operations | lectures: `GET`/`POST /api/lectures/`, `GET`/`PUT`/`PATCH`/`DELETE /api/lectures/{key}/`; questions: `POST /api/lectures/{key}/questions/`, `GET`/`PUT`/`PATCH`/`DELETE /api/questions/{id}/` |
-| Endpoints that work with related data | `GET` / `POST /api/lectures/{key}/questions/` (the questions of one lecture), `GET /api/lectures/{key}/` embeds `"questions": [...]`, `GET /api/questions/?lecture=` filters by lecture, `POST /api/questions/{id}/upvote/` creates or removes an `Upvote` |
-| Request validation and appropriate HTTP status / error responses | serializer field rules + `validate_*` (`backend/qa/serializers.py`); `200`/`201`/`204` on success, `400` with per-field messages, `404` unknown id or code, `405` wrong method, `409` question for a closed lecture, `503` database down |
-| Documentation of all endpoints: method, URL, parameters / body, expected response | [`docs/API.md`](docs/API.md) — every endpoint with its parameters, request body and example responses; the same contract as generated OpenAPI 3: Swagger UI at `/docs/`, [`backend/openapi.yaml`](backend/openapi.yaml) |
-| Postman Collection with working requests for all endpoints | [`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — 33 requests covering all 19 endpoints plus error cases, with test scripts; verified with newman (0 failed) |
+| At least 3 related data models / entities | `Lecture`, `Topic`, `Question`, `Upvote`, `Answer` — `backend/qa/models.py` |
+| At least 2 relationships between models, including at least one one-to-many | one-to-many: `Topic.lecture → Lecture`, `Question.lecture → Lecture`, `Question.topic → Topic` (SET_NULL), `Upvote.question → Question`; **one-to-one**: `Answer.question → Question` (`OneToOneField`); all `on_delete=CASCADE` except the topic tag |
+| Relational database and an ORM | PostgreSQL 17 (`db` service, `psycopg`) + Django ORM: models, migrations `0001`–`0004` (`backend/qa/migrations/`), annotated querysets (`backend/qa/lookup.py`) |
+| At least 10 API endpoints | 30 — 3 service, 7 lectures, 8 topics, 12 questions/answers; full table in [`docs/API.md`](docs/API.md) |
+| GET, POST, PUT/PATCH and DELETE operations | lectures and topics: full CRUD; questions: `POST /api/lectures/{key}/questions/`, `GET`/`PUT`/`PATCH`/`DELETE /api/questions/{id}/`; answer: `GET`/`PUT`/`DELETE /api/questions/{id}/answer/` |
+| Endpoints that work with related data | `/api/lectures/{key}/questions/`, `/api/lectures/{key}/topics/`, `/api/topics/{id}/questions/`, `/api/questions/{id}/answer/`; `GET /api/lectures/{key}/` embeds `topics` and `questions`; `?lecture=`, `?topic=`, `?has_answer=` filters |
+| Request validation and appropriate HTTP status / error responses | serializer field rules + `validate_*` / `validate` (`backend/qa/serializers.py`): title length, unique topic per lecture, topic of the same lecture, non-blank answer; `200`/`201`/`204`, `400` per-field, `404`, `405`, `409` closed lecture, `503` database down |
+| Documentation of all endpoints: method, URL, parameters / body, expected response | [`docs/API.md`](docs/API.md) — every endpoint with parameters, body and example responses; the same contract generated as OpenAPI 3: Swagger UI at `/docs/`, [`backend/openapi.yaml`](backend/openapi.yaml) |
+| Postman Collection with working requests for all endpoints | [`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — 56 requests covering all 30 endpoints plus error cases, with test scripts; verified with newman (0 failed) |
 
 ## Project structure
 
@@ -174,7 +193,7 @@ hw3/
 ├── compose.yaml            # services (web, db, optional tunnel), network, volume
 ├── .env.example            # configuration template (copy to .env)
 ├── docs/API.md             # endpoint reference with examples
-├── postman/                # collection (33 requests) + environment
+├── postman/                # collection (56 requests) + environment
 └── backend/
     ├── Dockerfile, entrypoint.sh, .dockerignore, requirements.txt
     ├── openapi.yaml        # generated schema (python manage.py spectacular --file openapi.yaml)
@@ -194,5 +213,5 @@ hw3/
         ├── management/commands/   # wait_for_db.py, seed_demo.py
         ├── migrations/     # 0001 schema, 0002 demo lecture
         ├── templates/qa/   # base, home, lecture (audience), screen (projector)
-        └── tests.py        # 35 tests: CRUD, validation, filters, pagination, schema, seed, tunnel, pages
+        └── tests.py        # 45 tests: CRUD, topics, answers, cascades, validation, filters, pagination, schema, seed
 ```
