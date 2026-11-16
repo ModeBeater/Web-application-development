@@ -243,3 +243,50 @@ table.data select { padding: 6px 8px; width: auto; }
 
 footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
 footer .inner { width: min(1240px, calc(100vw - 32px)); margin: 0 auto; padding: 16px 0; display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* ---------- topics, answers, ask assistant (final project) ---------- */
+:root {
+  --t0: #2563eb; --t1: #0d9488; --t2: #d97706; --t3: #7c3aed; --t4: #db2777; --t5: #059669; --t6: #ea580c; --t7: #475569;
+}
+.pill.topic { background: color-mix(in srgb, var(--tc, var(--accent)) 14%, transparent); color: var(--tc, var(--accent)); border: 1px solid color-mix(in srgb, var(--tc, var(--accent)) 35%, transparent); }
+.pill.topic .auto { opacity: .7; font-weight: 500; margin-left: 2px; }
+.t0 { --tc: var(--t0); } .t1 { --tc: var(--t1); } .t2 { --tc: var(--t2); } .t3 { --tc: var(--t3); }
+.t4 { --tc: var(--t4); } .t5 { --tc: var(--t5); } .t6 { --tc: var(--t6); } .t7 { --tc: var(--t7); }
+.chips .chip .n { background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 0 7px; margin-left: 6px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+.chips .chip.active .n { background: color-mix(in srgb, var(--bg) 25%, transparent); color: var(--bg); }
+.chips .chip[class*=" t"]:not(.active) { border-color: color-mix(in srgb, var(--tc) 45%, var(--line)); color: var(--tc); }
+.topic-filter { margin: 0 0 12px; }
+.q .answer { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--ok); background: color-mix(in srgb, var(--ok-soft) 55%, var(--surface)); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.q .answer-label { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ok); margin-bottom: 2px; }
+.q .answer-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.q.big .answer-text { font-size: 1.05rem; }
+.q.answered .answer { opacity: 1; }
+.q select.topic-select { width: auto; padding: 5px 8px; font-size: .85rem; }
+.answer-form { margin-top: 10px; }
+.answer-form textarea { min-height: 70px; margin-bottom: 8px; }
+.assistant { margin-top: 10px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); font-size: .92rem; }
+.assistant .hint-line { margin-bottom: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.assistant .similar { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px dashed var(--line); }
+.assistant .vote.sm { min-width: 48px; padding: 4px 6px; font-size: .9rem; }
+.assistant .sim-text { overflow-wrap: anywhere; }
+.ask-options { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.ask-options select { width: auto; max-width: 100%; padding: 7px 10px; font-size: .9rem; }
+
+/* topic plan page */
+.plan-grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 20px; align-items: start; }
+@media (max-width: 900px) { .plan-grid { grid-template-columns: 1fr; } }
+.topic-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
+.topic-row:first-child { border-top: 0; }
+.topic-row .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--tc, var(--accent)); margin-top: 6px; }
+.topic-row .title { font-weight: 700; }
+.topic-row .kw { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+.topic-row .edit-form input, .topic-row .edit-form textarea { margin-bottom: 8px; }
+.tools-inline { display: flex; gap: 6px; align-items: center; }
+.bars { display: grid; gap: 8px; }
+.bar { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: .9rem; }
+.bar .track { grid-column: 1 / -1; height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.bar .fill { height: 100%; background: var(--tc, var(--accent)); border-radius: 999px; transition: width .3s; }
+.screen .topics-panel { margin-top: 16px; text-align: left; }
+.drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 16px; text-align: center; color: var(--muted); font-size: .9rem; }
+.drop input[type=file] { display: block; margin: 8px auto 0; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }

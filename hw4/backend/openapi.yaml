@@ -219,8 +219,8 @@ paths:
   /api/lectures/:
     get:
       operationId: lectures_list
-      description: Newest first, each with its owner and number of questions. `?owner=me`
-        for mine.
+      description: Newest first, each with its owner, number of questions and topics.
+        `?owner=me` for mine.
       summary: List lectures
       parameters:
       - in: query
@@ -301,8 +301,8 @@ paths:
   /api/lectures/{key}/:
     get:
       operationId: lectures_retrieve
-      description: The lecture with its questions in screen order (most upvoted first,
-        answered last).
+      description: The lecture with its topic plan and its questions in screen order
+        (most upvoted first, answered last).
       summary: Get a lecture by id or code
       parameters:
       - in: path
@@ -395,7 +395,8 @@ paths:
           description: Signed in, but the role or ownership rules forbid it
     delete:
       operationId: lectures_destroy
-      description: Owner or admin. Its questions and upvotes are removed by cascade.
+      description: Owner or admin. Its topics, material, questions, upvotes and answers
+        are removed by cascade.
       summary: Delete a lecture
       parameters:
       - in: path
@@ -413,6 +414,119 @@ paths:
           description: No response body
         '403':
           description: Signed in, but the role or ownership rules forbid it
+  /api/lectures/{key}/export/:
+    get:
+      operationId: lectures_export_retrieve
+      description: Topics, questions (with votes and authors) and written answers
+        as a Markdown document — to send to the audience after the lecture.
+      summary: Export the lecture as Markdown
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            text/markdown:
+              schema:
+                type: string
+          description: ''
+  /api/lectures/{key}/material/:
+    get:
+      operationId: lectures_material_retrieve
+      description: CRUD for lectures. The router maps list/create/retrieve/update/partial_update/destroy
+        to URLs.
+      summary: Get the uploaded lecture material
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Material'
+          description: ''
+        '404':
+          description: Nothing uploaded yet
+    post:
+      operationId: lectures_material_create
+      description: 'Owner or admin. Either JSON `{"title": "...", "text": "..."}`
+        or multipart with a `file` (.txt, .md or .pdf, up to 5 MB). Replaces the previous
+        material (one per lecture). Unless `extract=false`, headings become topics
+        (existing titles are updated, the lecturer''s own topics are kept), each topic
+        gets TF-IDF keywords, and the lecture''s questions are re-tagged.'
+      summary: Upload the lecture text and build the topic plan
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaterialRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialUploadResult'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaterialUploadResult'
+          description: ''
+        '400':
+          description: Empty or too large
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    delete:
+      operationId: lectures_material_destroy
+      description: Owner or admin. The topics built from it stay.
+      summary: Delete the lecture material
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+        '404':
+          description: Nothing uploaded
   /api/lectures/{key}/questions/:
     get:
       operationId: lectures_questions_list
@@ -449,8 +563,10 @@ paths:
           description: ''
     post:
       operationId: lectures_questions_create
-      description: Any signed-in user. The caller becomes the author. 409 if the lecture
-        is closed.
+      description: 'Any signed-in user. The caller becomes the author. Send `topic_id`
+        to tag the question yourself (`tag_source: manual`); leave it out and the
+        tagging model suggests a topic (`tag_source: auto`, with `tag_score`) or leaves
+        the question untagged. 409 if the lecture is closed.'
       summary: Ask a question (create)
       parameters:
       - in: path
@@ -486,6 +602,129 @@ paths:
           description: No or invalid access token
         '409':
           description: Lecture closed
+  /api/lectures/{key}/retag/:
+    post:
+      operationId: lectures_retag_create
+      description: Owner or admin. Runs the tagging model again over the lecture's
+        questions — after the topic plan changed. Manual tags are kept unless `?include_manual=true`.
+      summary: Re-tag the questions of a lecture
+      parameters:
+      - in: query
+        name: include_manual
+        schema:
+          type: boolean
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetagResult'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/lectures/{key}/similar/:
+    get:
+      operationId: lectures_similar_list
+      description: Existing questions of this lecture that look like `text`, best
+        first — shown to a student before they post a duplicate. Char n-gram TF-IDF
+        cosine similarity above `SIMILAR_THRESHOLD`.
+      summary: Similar questions (while typing)
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - in: query
+        name: text
+        schema:
+          type: string
+        description: The question text being typed
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSimilarQuestionList'
+          description: ''
+  /api/lectures/{key}/suggest/:
+    get:
+      operationId: lectures_suggest_retrieve
+      description: What topic the tagging model would assign to `text`, with the score
+        for every topic. Nothing is stored — the frontend shows it next to the question
+        field.
+      summary: Preview the automatic tag
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      - in: query
+        name: text
+        schema:
+          type: string
+        description: The question text being typed
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagSuggestion'
+          description: ''
+  /api/lectures/{key}/summary/:
+    get:
+      operationId: lectures_summary_retrieve
+      description: 'Totals and a per-topic breakdown (questions, answered, upvotes)
+        — what the lecturer looks at after the lecture. The `topics` list ends with
+        the untagged bucket (`id: null`).'
+      summary: Lecture summary
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LectureSummary'
+          description: ''
   /api/lectures/{key}/toggle/:
     post:
       operationId: lectures_toggle_create
@@ -512,12 +751,85 @@ paths:
           description: ''
         '403':
           description: Signed in, but the role or ownership rules forbid it
+  /api/lectures/{key}/topics/:
+    get:
+      operationId: lectures_topics_list
+      description: 'The lecture plan: topics in order, each with its number of tagged
+        questions.'
+      summary: List topics of a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTopicList'
+          description: ''
+    post:
+      operationId: lectures_topics_create
+      description: Owner or admin. One lecture has many topics (one-to-many); the
+        title is unique within the lecture.
+      summary: Add a topic to a lecture
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+        '401':
+          description: No or invalid access token
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
   /api/questions/:
     get:
       operationId: questions_list
-      description: Every question, newest first. Filter with `?lecture=`, `?is_answered=`,
-        `?author=me`, `?search=`, sort with `?ordering=votes|-votes|created_at`, page
-        with `?limit=&offset=`.
+      description: Every question, newest first. Filter with `?lecture=`, `?topic=`,
+        `?is_answered=`, `?has_answer=`, `?tag_source=manual|auto|none`, `?author=me`,
+        `?search=`, sort with `?ordering=votes|-votes|created_at`, page with `?limit=&offset=`.
       summary: List all questions
       parameters:
       - in: query
@@ -525,6 +837,12 @@ paths:
         schema:
           type: string
         description: Author user id, or `me`
+      - in: query
+        name: has_answer
+        schema:
+          type: boolean
+        description: true = only questions with a written answer, false = without
+          one
       - in: query
         name: is_answered
         schema:
@@ -559,6 +877,25 @@ paths:
         description: A search term.
         schema:
           type: string
+      - in: query
+        name: tag_source
+        schema:
+          type: string
+          enum:
+          - auto
+          - manual
+          - none
+        description: |-
+          How the topic was assigned: manual, auto, or none (untagged)
+
+          * `manual` - manual
+          * `auto` - auto
+          * `none` - none
+      - in: query
+        name: topic
+        schema:
+          type: number
+        description: Only questions tagged with this topic id
       tags:
       - questions
       responses:
@@ -592,7 +929,8 @@ paths:
           description: ''
     put:
       operationId: questions_update
-      description: Author, lecture owner or admin.
+      description: Author, lecture owner or admin. Changing `topic_id` makes the tag
+        manual.
       summary: Replace a question (PUT)
       parameters:
       - in: path
@@ -628,7 +966,8 @@ paths:
           description: Signed in, but the role or ownership rules forbid it
     patch:
       operationId: questions_partial_update
-      description: Author, lecture owner or admin.
+      description: Author, lecture owner or admin. Changing `topic_id` makes the tag
+        manual.
       summary: Update part of a question (PATCH)
       parameters:
       - in: path
@@ -663,7 +1002,8 @@ paths:
           description: Signed in, but the role or ownership rules forbid it
     delete:
       operationId: questions_destroy
-      description: Author, lecture owner or admin. Its upvotes are removed by cascade.
+      description: Author, lecture owner or admin. Its upvotes and answer are removed
+        by cascade.
       summary: Delete a question
       parameters:
       - in: path
@@ -681,6 +1021,97 @@ paths:
           description: No response body
         '403':
           description: Signed in, but the role or ownership rules forbid it
+  /api/questions/{id}/answer/:
+    get:
+      operationId: questions_answer_retrieve
+      description: The lecturer's answer to this question (one-to-one). 404 while
+        there is none.
+      summary: Get the written answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+          description: ''
+        '404':
+          description: No answer yet
+    put:
+      operationId: questions_answer_update
+      description: Lecture owner or admin. Creates the answer (201) or replaces the
+        existing one (200); the caller becomes its author and the question is marked
+        as answered.
+      summary: Write or replace the answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Answer'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    delete:
+      operationId: questions_answer_destroy
+      description: Lecture owner or admin. Removes the written answer and reopens
+        the question.
+      summary: Delete the answer
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this question.
+        required: true
+      tags:
+      - questions
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+        '404':
+          description: No answer
   /api/questions/{id}/answered/:
     post:
       operationId: questions_answered_create
@@ -746,6 +1177,199 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Stats'
+          description: ''
+  /api/topics/:
+    get:
+      operationId: topics_list
+      description: Topics of every lecture; filter with `?lecture=<id|code>`, page
+        with `?limit=&offset=`.
+      summary: List all topics
+      parameters:
+      - in: query
+        name: lecture
+        schema:
+          type: string
+        description: Lecture id or join code
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - topics
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTopicList'
+          description: ''
+  /api/topics/{id}/:
+    get:
+      operationId: topics_retrieve
+      description: 'Read / update / delete topics. They are created inside a lecture:
+        POST /api/lectures/{key}/topics/.'
+      summary: Get a topic by id
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+    put:
+      operationId: topics_update
+      description: Lecture owner or admin.
+      summary: Replace a topic (PUT)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TopicRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    patch:
+      operationId: topics_partial_update
+      description: Lecture owner or admin.
+      summary: Update part of a topic (PATCH)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedTopicRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedTopicRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedTopicRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+          description: ''
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+    delete:
+      operationId: topics_destroy
+      description: Lecture owner or admin. The lecture's questions stay; their `topic_id`
+        becomes null (SET_NULL).
+      summary: Delete a topic
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      tags:
+      - topics
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '403':
+          description: Signed in, but the role or ownership rules forbid it
+  /api/topics/{id}/questions/:
+    get:
+      operationId: topics_questions_list
+      description: Questions tagged with this topic, in screen order (most upvoted
+        first, answered last). Paginated.
+      summary: List questions of a topic
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this topic.
+        required: true
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      tags:
+      - topics
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedQuestionList'
           description: ''
   /api/users/:
     get:
@@ -898,6 +1522,50 @@ paths:
           description: ''
 components:
   schemas:
+    Answer:
+      type: object
+      description: The lecturer's written answer; one per question (OneToOneField).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        question_id:
+          type: integer
+          readOnly: true
+        text:
+          type: string
+          description: 1–2000 characters
+          maxLength: 2000
+        author:
+          allOf:
+          - $ref: '#/components/schemas/UserPublic'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author
+      - created_at
+      - id
+      - question_id
+      - text
+      - updated_at
+    AnswerRequest:
+      type: object
+      description: The lecturer's written answer; one per question (OneToOneField).
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 1–2000 characters
+          maxLength: 2000
+      required:
+      - text
     AnsweredResult:
       type: object
       properties:
@@ -935,6 +1603,9 @@ components:
         lectures:
           type: string
           format: uri
+        topics:
+          type: string
+          format: uri
         questions:
           type: string
           format: uri
@@ -950,6 +1621,7 @@ components:
       - questions
       - schema
       - stats
+      - topics
       - users
       - version
     Health:
@@ -988,6 +1660,15 @@ components:
         question_count:
           type: integer
           readOnly: true
+        topic_count:
+          type: integer
+          readOnly: true
+          default: 0
+          description: Topics in the lecture plan
+        has_material:
+          type: boolean
+          readOnly: true
+          description: Whether lecture text was uploaded (source of auto topics)
         created_at:
           type: string
           format: date-time
@@ -1010,16 +1691,18 @@ components:
       - can_manage
       - code
       - created_at
+      - has_material
       - id
       - join_url
       - owner
       - question_count
       - screen_url
       - title
+      - topic_count
     LectureDetail:
       type: object
-      description: 'GET /api/lectures/{key}/: the lecture plus its questions in screen
-        order.'
+      description: 'GET /api/lectures/{key}/: the lecture plus its topics and its
+        questions in screen order.'
       properties:
         id:
           type: integer
@@ -1042,6 +1725,15 @@ components:
         question_count:
           type: integer
           readOnly: true
+        topic_count:
+          type: integer
+          readOnly: true
+          default: 0
+          description: Topics in the lecture plan
+        has_material:
+          type: boolean
+          readOnly: true
+          description: Whether lecture text was uploaded (source of auto topics)
         created_at:
           type: string
           format: date-time
@@ -1060,6 +1752,11 @@ components:
           type: boolean
           readOnly: true
           description: Whether the caller may edit, close or delete it
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+          readOnly: true
         questions:
           type: array
           items:
@@ -1069,6 +1766,7 @@ components:
       - can_manage
       - code
       - created_at
+      - has_material
       - id
       - join_url
       - owner
@@ -1076,6 +1774,8 @@ components:
       - questions
       - screen_url
       - title
+      - topic_count
+      - topics
     LectureRequest:
       type: object
       description: A lecture as the API shows it. `code`, `owner`, `created_at` and
@@ -1091,6 +1791,51 @@ components:
           description: Closed lectures reject new questions with 409
       required:
       - title
+    LectureSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        code:
+          type: string
+        title:
+          type: string
+        is_open:
+          type: boolean
+        questions:
+          type: integer
+        answered:
+          type: integer
+        with_written_answer:
+          type: integer
+        upvotes:
+          type: integer
+        participants:
+          type: integer
+        tagged_auto:
+          type: integer
+        tagged_manual:
+          type: integer
+        untagged:
+          type: integer
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopicStat'
+      required:
+      - answered
+      - code
+      - id
+      - is_open
+      - participants
+      - questions
+      - tagged_auto
+      - tagged_manual
+      - title
+      - topics
+      - untagged
+      - upvotes
+      - with_written_answer
     LoginRequest:
       type: object
       description: |-
@@ -1119,6 +1864,85 @@ components:
           description: The refresh token to revoke
       required:
       - refresh
+    Material:
+      type: object
+      description: The uploaded lecture text. `text` is accepted as JSON or as a file
+        field named `file` (txt / md / pdf).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lecture_id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          description: File name or a short label
+          maxLength: 200
+        text:
+          type: string
+          description: Plain text of the lecture
+        characters:
+          type: integer
+          readOnly: true
+        uploaded_by:
+          allOf:
+          - $ref: '#/components/schemas/UserPublic'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - characters
+      - created_at
+      - id
+      - lecture_id
+      - text
+      - updated_at
+      - uploaded_by
+    MaterialRequest:
+      type: object
+      description: The uploaded lecture text. `text` is accepted as JSON or as a file
+        field named `file` (txt / md / pdf).
+      properties:
+        title:
+          type: string
+          description: File name or a short label
+          maxLength: 200
+        text:
+          type: string
+          minLength: 1
+          description: Plain text of the lecture
+      required:
+      - text
+    MaterialUploadResult:
+      type: object
+      properties:
+        material:
+          $ref: '#/components/schemas/Material'
+        topics_created:
+          type: integer
+        topics_updated:
+          type: integer
+        topics:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+        retag:
+          type: object
+          additionalProperties:
+            type: integer
+      required:
+      - material
+      - retag
+      - topics
+      - topics_created
+      - topics_updated
     PaginatedLectureList:
       type: object
       required:
@@ -1165,6 +1989,52 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Question'
+    PaginatedSimilarQuestionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SimilarQuestion'
+    PaginatedTopicList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=400&limit=100
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?offset=200&limit=100
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
     PaginatedUserAdminList:
       type: object
       required:
@@ -1219,6 +2089,11 @@ components:
       type: object
       description: A question with its author and vote count.
       properties:
+        topic_id:
+          type: integer
+          nullable: true
+          description: Topic of the same lecture. Omit it and the tagging model picks
+            one; null removes the tag
         text:
           type: string
           minLength: 1
@@ -1226,6 +2101,29 @@ components:
           maxLength: 500
         is_answered:
           type: boolean
+    PatchedTopicRequest:
+      type: object
+      description: A sub-topic of a lecture. `lecture_id` comes from the URL on create
+        and is read-only afterwards.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters, unique within the lecture
+          maxLength: 120
+        keywords:
+          type: string
+          description: Comma-separated hints used by the tagging model
+          maxLength: 300
+        description:
+          type: string
+          description: What the topic covers; the section text when extracted from
+            the material
+        order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Position in the lecture plan
     PatchedUserAdminRequest:
       type: object
       description: Admins may also change the role and (de)activate accounts.
@@ -1283,6 +2181,25 @@ components:
         lecture_title:
           type: string
           readOnly: true
+        topic_id:
+          type: integer
+          nullable: true
+          description: Topic of the same lecture. Omit it and the tagging model picks
+            one; null removes the tag
+        topic_title:
+          type: string
+          readOnly: true
+          nullable: true
+        tag_source:
+          type: string
+          readOnly: true
+          description: '"manual", "auto" or "" (untagged)'
+        tag_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: Model confidence 0..1 for auto tags
         text:
           type: string
           description: 1–500 characters
@@ -1303,6 +2220,12 @@ components:
           description: Whether the caller has upvoted it
         is_answered:
           type: boolean
+        answer:
+          allOf:
+          - $ref: '#/components/schemas/Answer'
+          readOnly: true
+          nullable: true
+          description: The lecturer's written answer, or null
         created_at:
           type: string
           format: date-time
@@ -1314,8 +2237,9 @@ components:
         can_answer:
           type: boolean
           readOnly: true
-          description: Whether the caller may mark it answered
+          description: Whether the caller may mark it answered / write the answer
       required:
+      - answer
       - author
       - can_answer
       - can_edit
@@ -1324,13 +2248,21 @@ components:
       - lecture_code
       - lecture_id
       - lecture_title
+      - tag_score
+      - tag_source
       - text
+      - topic_title
       - voted
       - votes
     QuestionRequest:
       type: object
       description: A question with its author and vote count.
       properties:
+        topic_id:
+          type: integer
+          nullable: true
+          description: Topic of the same lecture. Omit it and the tagging model picks
+            one; null removes the tag
         text:
           type: string
           minLength: 1
@@ -1392,6 +2324,22 @@ components:
       description: |-
         * `student` - student
         * `lecturer` - lecturer
+    RetagResult:
+      type: object
+      properties:
+        processed:
+          type: integer
+        tagged:
+          type: integer
+        untagged:
+          type: integer
+        topics:
+          type: integer
+      required:
+      - processed
+      - tagged
+      - topics
+      - untagged
     RoleEnum:
       enum:
       - student
@@ -1402,6 +2350,19 @@ components:
         * `student` - Student
         * `lecturer` - Lecturer
         * `admin` - Admin
+    SimilarQuestion:
+      type: object
+      description: 'A match returned by /similar/: the existing question plus how
+        close it is (cosine similarity 0..1).'
+      properties:
+        question:
+          $ref: '#/components/schemas/Question'
+        similarity:
+          type: number
+          format: double
+      required:
+      - question
+      - similarity
     Stats:
       type: object
       properties:
@@ -1424,6 +2385,32 @@ components:
       - questions
       - upvotes
       - users
+    TagSuggestion:
+      type: object
+      properties:
+        topic_id:
+          type: integer
+          nullable: true
+        topic_title:
+          type: string
+          nullable: true
+        score:
+          type: number
+          format: double
+        threshold:
+          type: number
+          format: double
+        scores:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - score
+      - scores
+      - threshold
+      - topic_id
+      - topic_title
     ToggleResult:
       type: object
       properties:
@@ -1453,6 +2440,97 @@ components:
       - access
       - refresh
       - user
+    Topic:
+      type: object
+      description: A sub-topic of a lecture. `lecture_id` comes from the URL on create
+        and is read-only afterwards.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        lecture_id:
+          type: integer
+          readOnly: true
+        lecture_code:
+          type: string
+          readOnly: true
+        title:
+          type: string
+          description: 3–120 characters, unique within the lecture
+          maxLength: 120
+        keywords:
+          type: string
+          description: Comma-separated hints used by the tagging model
+          maxLength: 300
+        description:
+          type: string
+          description: What the topic covers; the section text when extracted from
+            the material
+        order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Position in the lecture plan
+        question_count:
+          type: integer
+          readOnly: true
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - lecture_code
+      - lecture_id
+      - question_count
+      - title
+    TopicRequest:
+      type: object
+      description: A sub-topic of a lecture. `lecture_id` comes from the URL on create
+        and is read-only afterwards.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: 3–120 characters, unique within the lecture
+          maxLength: 120
+        keywords:
+          type: string
+          description: Comma-separated hints used by the tagging model
+          maxLength: 300
+        description:
+          type: string
+          description: What the topic covers; the section text when extracted from
+            the material
+        order:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          description: Position in the lecture plan
+      required:
+      - title
+    TopicStat:
+      type: object
+      properties:
+        id:
+          type: integer
+          nullable: true
+        title:
+          type: string
+        questions:
+          type: integer
+        answered:
+          type: integer
+        upvotes:
+          type: integer
+      required:
+      - answered
+      - id
+      - questions
+      - title
+      - upvotes
     UpvoteResult:
       type: object
       properties:

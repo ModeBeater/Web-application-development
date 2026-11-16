@@ -1,10 +1,18 @@
 # Raise Hand — live questions for lectures
 
-Web Application Development (KBTU, Fall 2026) · **Homework 4 / Endterm project: Complete Containerized Web Application**.
+Web Application Development (KBTU, Fall 2026) · **Homework 4 / Endterm · final project: Complete Containerized Web Application**.
 
 Students scan a QR code on the projector, ask questions from their phones and upvote the ones they also have. The most wanted questions float to the top of the screen; the lecturer marks them answered. I teach Flutter at KBTU, so this is a tool for my own lectures.
 
 This is the complete application: the HW3 REST API (Django REST Framework) plus **JWT authentication** (access + refresh tokens with rotation and blacklist), **three roles** (student / lecturer / admin) with permissions on every write, a **personal cabinet**, **user management**, and a **client-side frontend** that talks to the API with the tokens the browser holds — all running from `docker compose up`.
+
+The final version adds what makes the tool useful after the lecture, not only during it:
+
+* **Topic plan** — a lecture has topics (one-to-many); the lecturer types them in or **uploads the lecture text** (.txt / .md / .pdf, one-to-one with the lecture) and the headings become topics with TF-IDF keywords.
+* **Automatic tagging** — when a student asks, a small offline model (`qa/tagging.py`: character n-gram TF-IDF + keyword bonus, scikit-learn) files the question under the right topic, or leaves it untagged when unsure; the student can also pick the topic. Every question carries `tag_source` (`auto` / `manual`) and the model's confidence.
+* **“Already asked?”** — while typing, similar existing questions are shown with an upvote button, so duplicates become votes.
+* **Written answers** — one per question (one-to-one): the lecturer answers in text, the audience sees it under the question, deleting the question deletes the answer.
+* **Summary and export** — questions per topic for the lecturer, Markdown export of the whole lecture (topics → questions → answers) to send to the group.
 
 ```text
  browser / phone                    web (Django 5.2 + DRF + SimpleJWT + gunicorn)      db (PostgreSQL 17)
@@ -69,7 +77,8 @@ Server-rendered shells (`backend/qa/templates/qa/*.html`) with a small client in
 
 - stores the token pair and the user profile in `localStorage`, adds `Authorization: Bearer` to every API call, and on a `401` silently refreshes the pair and retries once (then signs the user out and redirects to `/login/?next=…`);
 - renders DRF errors: `{"detail": …}` as a toast, `{"field": [...]}` under the matching inputs;
-- pages: lectures list with search / filters / pagination and "Start a lecture" (lecturers), login, register, personal cabinet (profile, password, my lectures, my questions, session with the access-token expiry and a "refresh now" button), users admin table, audience page (ask, upvote, edit own), projector screen (QR code, live board, close / mark answered for the owner);
+- pages: lectures list with search / filters / pagination and "Start a lecture" (lecturers), login, register, personal cabinet (profile, password, my lectures, my questions, session with the access-token expiry and a "refresh now" button), users admin table, audience page (ask with live "already asked?" hints and the predicted topic, topic chips and a topic filter, upvote, edit own), projector screen (QR code, live board with topic chips and a questions-by-topic panel, close / mark answered for the owner), **topic plan page** `/l/{code}/plan/` (topics CRUD, material upload with drag-and-drop, re-tag, per-topic summary, Markdown export);
+- lecturer tools on every question: mark answered, write / edit / remove the written answer, change the topic;
 - the board polls `GET /api/lectures/{code}/` every `REFRESH_SECONDS`; light / dark theme, responsive down to phone width.
 
 ## REST API
@@ -88,38 +97,65 @@ Reference with examples and the curl walk-through: **[`docs/API.md`](docs/API.md
 | `PATCH` / `DELETE` | `/api/users/{id}/` | Change role / active flag · delete | admin |
 | `GET` | `/api/lectures/` | List — `?is_open=`, `?owner=me`, `?search=`, `?ordering=`, `?limit=&offset=` | all |
 | `POST` | `/api/lectures/` | Create (caller becomes owner) | lecturer, admin |
-| `GET` | `/api/lectures/{key}/` | Retrieve by id or code, with questions in screen order | all |
-| `PUT` / `PATCH` / `DELETE` | `/api/lectures/{key}/` | Update / delete | owner, admin |
+| `GET` | `/api/lectures/{key}/` | Retrieve by id or code, with topics and questions in screen order | all |
+| `PUT` / `PATCH` / `DELETE` | `/api/lectures/{key}/` | Update / delete (cascade: topics, material, questions, upvotes, answers) | owner, admin |
 | `POST` | `/api/lectures/{key}/toggle/` | Open / close | owner, admin |
-| `GET` / `POST` | `/api/lectures/{key}/questions/` | List / ask (409 if closed) | all / signed in |
-| `GET` | `/api/questions/` | List — `?lecture=`, `?is_answered=`, `?author=me`, `?search=`, `?ordering=` | all |
-| `GET` / `PUT` / `PATCH` / `DELETE` | `/api/questions/{id}/` | Retrieve / update / delete | all / author, owner, admin |
+| `GET` / `POST` | `/api/lectures/{key}/questions/` | List / ask (`topic_id` optional → otherwise the model tags it; 409 if closed) | all / signed in |
+| `GET` / `POST` | `/api/lectures/{key}/topics/` | Topic plan / add a topic | all / owner, admin |
+| `GET` / `POST` / `DELETE` | `/api/lectures/{key}/material/` | Lecture text (JSON or multipart `file`): upload builds topics and re-tags | all / owner, admin |
+| `GET` | `/api/lectures/{key}/suggest/?text=` | Preview the automatic tag with a score per topic | all |
+| `GET` | `/api/lectures/{key}/similar/?text=` | Similar existing questions ("already asked?") | all |
+| `POST` | `/api/lectures/{key}/retag/` | Run the model again over the lecture (`?include_manual=true`) | owner, admin |
+| `GET` | `/api/lectures/{key}/summary/` | Totals and questions / answers / votes per topic | all |
+| `GET` | `/api/lectures/{key}/export/` | Markdown export (topics → questions → answers) | all |
+| `GET` | `/api/topics/` | All topics — `?lecture=`, `?search=`, `?ordering=` | all |
+| `GET` / `PUT` / `PATCH` / `DELETE` | `/api/topics/{id}/` | Retrieve / update / delete (questions keep, `topic_id` → null) | all / owner, admin |
+| `GET` | `/api/topics/{id}/questions/` | Questions tagged with a topic | all |
+| `GET` | `/api/questions/` | List — `?lecture=`, `?topic=`, `?is_answered=`, `?has_answer=`, `?tag_source=`, `?author=me`, `?search=`, `?ordering=` | all |
+| `GET` / `PUT` / `PATCH` / `DELETE` | `/api/questions/{id}/` | Retrieve / update (`topic_id` makes the tag manual) / delete | all / author, owner, admin |
 | `POST` | `/api/questions/{id}/upvote/` | Toggle the caller's upvote | signed in |
 | `POST` | `/api/questions/{id}/answered/` | Toggle answered | owner, admin |
+| `GET` / `PUT` / `DELETE` | `/api/questions/{id}/answer/` | Written answer: read / write or replace (201 / 200) / delete | all / owner, admin |
 | `GET` | `/api/` · `/api/stats/` · `/health/` · `/api/schema/` | Root, totals, health, OpenAPI | all |
 
 Lists are paginated (`count / next / previous / results`); errors follow DRF (`{"field": [...]}` for 400, `{"detail": "..."}` otherwise).
 
 ## Postman collection
 
-[`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — **62 requests, 111 assertions** — plus [`postman/local.postman_environment.json`](postman/local.postman_environment.json) (`baseUrl`, `demoPassword`). Import both, select the environment and run the collection with the Runner: folder **1** registers a throw-away student and lecturer and stores their tokens in collection variables (the collection's default auth is `Bearer {{access_token}}`), shows login, the JWT claims, profile edit, refresh **rotation** and the rejected reuse of the old refresh token; **2–4** run the lecture and question CRUD as the lecturer and the student, including the `401`/`403`/`409` cases; **5** logs out and proves the refresh token is revoked; **6** signs in as the admin, manages users and deletes the throw-away accounts; **7** shows the error formats and checks the schema. The run is repeatable.
+[`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — **89 requests, 161 assertions** — plus [`postman/local.postman_environment.json`](postman/local.postman_environment.json) (`baseUrl`, `demoPassword`). Import both, select the environment and run the collection with the Runner: folder **1** registers a throw-away student and lecturer and stores their tokens in collection variables (the collection's default auth is `Bearer {{access_token}}`), shows login, the JWT claims, profile edit, refresh **rotation** and the rejected reuse of the old refresh token; **2–4** run the lecture and question CRUD as the lecturer and the student, including the `401`/`403`/`409` cases; **3b** walks through the final-project features — topics, material upload, the tagging model (auto / manual / untagged), similar questions, answers, summary, export; **5** logs out and proves the refresh token is revoked; **6** signs in as the admin, manages users and deletes the throw-away accounts; **7** shows the error formats and checks the schema. The run is repeatable.
 
 ```bash
 npx newman run postman/RaiseHand.postman_collection.json -e postman/local.postman_environment.json
-# → 62 requests, 111 assertions, 0 failed
+# → 89 requests, 161 assertions, 0 failed
 ```
 
 ## Data models
 
 ```text
 accounts.User (AbstractUser + role: student | lecturer | admin)
-   ├── Lecture.owner      (title, code, is_open, created_at)
-   │      └── Question    (lecture FK, author FK → User, text, is_answered, created_at)
-   │             └── Upvote (question FK, user FK → User)   unique (question, user)
+   ├── Lecture.owner        (title, code, is_open, created_at)
+   │      ├── LectureMaterial (lecture OneToOne CASCADE, title, text, uploaded_by → User)          1 → 1
+   │      ├── Topic           (lecture FK CASCADE, title, keywords, description, order)  unique (lecture, title)   1 → N
+   │      └── Question        (lecture FK CASCADE, author FK → User, topic FK SET_NULL, tag_source, tag_score,
+   │             │             text, is_answered, created_at)                                                      1 → N
+   │             ├── Upvote   (question FK CASCADE, user FK → User)   unique (question, user)                       1 → N
+   │             └── Answer   (question OneToOne CASCADE, author FK → User SET_NULL, text, created_at, updated_at)  1 → 1
    └── token_blacklist.OutstandingToken / BlacklistedToken  (refresh tokens that can be revoked)
 ```
 
-Migrations: `accounts/0001` (user), `qa/0001` (schema), `qa/0002` (demo accounts + demo lecture, data migration), SimpleJWT's `token_blacklist`. Applied by `entrypoint.sh` on every start.
+Two one-to-one relations (`LectureMaterial`, `Answer`) and four one-to-many ones, all cascading except `Question.topic`: a topic is a label on the lecture plan, so deleting a topic untags its questions instead of deleting them.
+
+Migrations: `accounts/0001` (user), `qa/0001` (schema), `qa/0002` (demo accounts + demo lecture), `qa/0003` (topics, material, answers, tag fields), `qa/0004` (demo topics and an answer for `KBTU26`), SimpleJWT's `token_blacklist`. Applied by `entrypoint.sh` on every start.
+
+## Automatic tagging (`backend/qa/tagging.py`, `backend/qa/material.py`)
+
+1. Every topic is a document: title (counted twice), keywords and description — the section of the uploaded lecture text.
+2. `TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5))` from scikit-learn turns the topics and the new question into vectors; **cosine similarity** gives a score per topic. Character n-grams work across Russian, Kazakh and English, survive typos and word endings, and need no stemmer.
+3. Each keyword found in the question adds a bonus (0.25, capped), so the lecturer's own words win.
+4. The best topic is used when its score reaches `TAGGING_THRESHOLD` (0.18 by default); otherwise the question stays untagged — a wrong tag is worse than none. The score is stored as `tag_score`, the origin as `tag_source` (`auto` | `manual` | empty).
+5. The same vectorizer over the lecture's existing questions powers `/similar/` ("already asked?", `SIMILAR_THRESHOLD` 0.35).
+
+Uploading lecture text (`POST /api/lectures/{key}/material/`) splits it into sections by headings (Markdown `#`, numbered `1.`, ALL CAPS lines, PDF slide titles; paragraph groups as a fallback), extracts the distinguishing words of each section as keywords (word-level TF-IDF across sections) and creates or updates the topics; questions are re-tagged afterwards. `TAGGING_BACKEND=keywords` switches the n-gram part off for comparison. On the demo data the model agrees with a hand-written keyword rule on 48 of 52 questions and tags 103 of 104.
 
 ## Services (compose.yaml)
 
@@ -141,6 +177,7 @@ Both services share the `backend` network, so the app reaches the database as `d
 | `DJANGO_SECRET_KEY` | web | Django secret key **and** the JWT signing key — required, ≥ 32 characters, no default in code |
 | `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` | web | Debug flag (default off); allowed hosts (add your LAN IP for a demo) |
 | `JWT_ACCESS_MINUTES`, `JWT_REFRESH_DAYS` | web | Token lifetimes (default 15 minutes / 7 days) |
+| `TAGGING_BACKEND`, `TAGGING_THRESHOLD`, `SIMILAR_THRESHOLD` | web | Tagging model: `tfidf` (default) or `keywords`; minimum score for an automatic tag (0.18); minimum similarity for "already asked" hints (0.35) |
 | `DEMO_PASSWORD` | web | Password of the demo accounts created by the seed (default `Demo12345!`) |
 | `SEED_DEMO` | web | `1` loads the demo data set on start (idempotent), `0` keeps only the demo accounts + one lecture |
 | `APP_NAME`, `PUBLIC_URL`, `REFRESH_SECONDS` | web | Header name; address for the QR code (empty = tunnel or request address); polling interval |
@@ -151,13 +188,17 @@ Both services share the `backend` network, so the app reaches the database as `d
 ```bash
 docker compose ps                                   # state and health of both services
 docker compose logs -f web                          # migrations, seed, then gunicorn access log
-docker compose run --rm web python manage.py test   # 38 tests (auth, permissions, CRUD, docs, seed, pages)
+docker compose run --rm web python manage.py test   # 55 tests (auth, permissions, CRUD, topics, tagging, material, answers, docs, seed, pages)
 docker compose exec web python manage.py seed_demo --clear    # regenerate the demo lectures and questions
 docker compose exec db psql -U raisehand -d raisehand -c 'SELECT username, role FROM accounts_user LIMIT 10;'
 docker compose exec db psql -U raisehand -d raisehand -c 'SELECT count(*) FROM token_blacklist_blacklistedtoken;'
 docker compose up -d --build                        # rebuild and recreate after a code change
 docker compose down                                 # keep the volume · down -v removes it (fresh database next time)
 ```
+
+## Roadmap — what would make it a daily tool
+
+Done in this version: topic plan, automatic tagging, "already asked?" hints, written answers, summary and export. Next, in the order I would build them: live updates over WebSocket (Django Channels) instead of polling; a course → lectures hierarchy with an archive and per-course statistics; quick polls ("clear / not clear") during the lecture; a Telegram bot as a second entrance for students; a sentence-embedding backend for tagging (`TAGGING_BACKEND=embeddings`) when the lecture text is long; interface in Russian / Kazakh / English; GitHub Actions running the tests and the Postman collection on every push.
 
 ## How the HW4 / endterm requirements are covered
 
@@ -173,7 +214,9 @@ docker compose down                                 # keep the volume · down -v
 | Containerize with Docker and Docker Compose | `backend/Dockerfile` (non-root user, HEALTHCHECK, entrypoint), `compose.yaml`, named volume `pgdata` |
 | Environment variables for configuration and sensitive settings | `.env` → `env_file:` / `${VAR}`; secrets have no defaults in code; `.env` never committed |
 | Demonstrate the complete application running through Docker Compose | `docker compose up --build` → <http://localhost:8000> |
-| Serializers, CRUD, validation, API client (HW3) | `qa/serializers.py`, viewsets, 38 tests, Postman collection, Swagger |
+| Serializers, CRUD, validation, API client (HW3) | `qa/serializers.py`, viewsets, 55 tests, Postman collection, Swagger |
+| Related models: one-to-one and one-to-many with cascade | `LectureMaterial` and `Answer` (`OneToOneField`), `Topic` (`ForeignKey`), see *Data models* |
+| Automatic topic detection for questions | `qa/tagging.py` (TF-IDF + keywords), `qa/material.py` (topics from uploaded lecture text), `/suggest/`, `/similar/`, `/retag/` |
 
 ## Project structure
 
@@ -181,7 +224,7 @@ docker compose down                                 # keep the volume · down -v
 hw4/
 ├── compose.yaml, .env.example, .gitignore, README.md
 ├── docs/API.md                 # endpoint reference, auth walk-through
-├── postman/                    # collection (62 requests) + environment
+├── postman/                    # collection (89 requests) + environment
 └── backend/
     ├── Dockerfile, entrypoint.sh, .dockerignore, requirements.txt, openapi.yaml, manage.py
     ├── config/                 # settings (AUTH_USER_MODEL, REST_FRAMEWORK, SIMPLE_JWT, SPECTACULAR_SETTINGS), urls, wsgi
@@ -192,14 +235,17 @@ hw4/
     │   ├── api.py              # /api/auth/* and /api/users/
     │   └── urls.py
     └── qa/
-        ├── models.py           # Lecture(owner) → Question(author) → Upvote(user)
-        ├── serializers.py      # lecture / question shapes with can_manage / can_edit / can_answer
-        ├── permissions.py      # LecturePermission, QuestionPermission
-        ├── api.py              # viewsets, actions, stats, health, root
+        ├── models.py           # Lecture(owner) → Topic, LectureMaterial, Question(author, topic) → Upvote(user), Answer
+        ├── serializers.py      # lecture / topic / material / question / answer shapes with can_manage / can_edit / can_answer
+        ├── permissions.py      # LecturePermission, TopicPermission, QuestionPermission
+        ├── api.py              # viewsets, actions (topics, material, suggest, similar, retag, summary, export, answer), stats, health, root
+        ├── tagging.py          # TF-IDF + keyword tagging model, similar questions, re-tagging
+        ├── material.py         # lecture text → sections (headings) → topics with keywords; .txt / .md / .pdf
+        ├── export.py           # Markdown export of a lecture
         ├── filters.py, pagination.py, lookup.py, links.py, tunnel.py, views.py, urls.py
-        ├── management/commands/   # wait_for_db.py, seed_demo.py (accounts + 100+ questions)
-        ├── migrations/         # 0001 schema, 0002 demo accounts + lecture
-        ├── static/qa/          # app.css (design system, light/dark), app.js (JWT client, rendering)
-        ├── templates/qa/       # base, home, login, register, cabinet, users, lecture, screen
-        └── tests.py            # 38 tests
+        ├── management/commands/   # wait_for_db.py, seed_demo.py (accounts, topics, tagged questions, answers)
+        ├── migrations/         # 0001 schema, 0002 demo accounts + lecture, 0003 topics/material/answers, 0004 demo topics
+        ├── static/qa/          # app.css (design system, light/dark), app.js (JWT client, rendering, ask assistant)
+        ├── templates/qa/       # base, home, login, register, cabinet, users, lecture, screen, plan
+        └── tests.py            # 55 tests
 ```

@@ -1,8 +1,10 @@
 """
 `manage.py seed_demo` — fill the database with realistic demo data:
 40 student accounts, 8 lectures of a Flutter course owned by the demo lecturer,
-100+ questions with authors and timestamps, a few hundred upvotes, part of the
-questions marked as answered.
+each with a 3-topic plan (one lecture gets its plan from uploaded lecture text),
+100+ questions with authors, timestamps and topic tags (most of them assigned by the
+tagging model, some chosen "manually"), a few hundred upvotes, part of the questions
+marked as answered and one written answer per lecture.
 
 Demo accounts (password = DEMO_PASSWORD from .env, default "Demo12345!"):
 admin (admin), lecturer (lecturer), student / aigerim / daniyar and
@@ -25,7 +27,9 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from qa.models import Lecture, Question, Upvote
+from qa import tagging
+from qa.material import plan_from_text
+from qa.models import Answer, Lecture, LectureMaterial, Question, Topic, Upvote
 
 User = get_user_model()
 
@@ -164,6 +168,109 @@ DEMO_QUESTIONS = {
     ],
 }
 
+# (title, keywords) per lecture — questions are tagged with the topic whose keywords they mention
+DEMO_TOPICS = {
+    "FLT101": [
+        ("Variables and types", "final, const, late, nullable, num, int, double, dynamic, ?."),
+        ("Functions and classes", "parameter, named, positional, class, immutable, enum, extension, ==, identical, list."),
+        ("Async and JSON", "await, future, json"),
+    ],
+    "FLT102": [
+        ("Layout widgets", "column, row, expanded, flexible, sizedbox, padding, container, decoratedbox, stack, positioned, center, overflow, listview, scroll"),
+        ("Widget tree and keys", "key, buildcontext, element tree, const"),
+        ("Responsive UI", "mediaquery, screen size"),
+    ],
+    "FLT103": [
+        ("setState and lifecycle", "setstate, stateless, stateful, lifecycle, dispose"),
+        ("Provider, Riverpod, BLoC", "provider, riverpod, changenotifier, bloc, context.watch, valuenotifier, stream, inheritedwidget"),
+        ("App architecture", "business logic, lifting state, share state, tabs, keep state"),
+    ],
+    "FLT104": [
+        ("Navigator 1.0", "navigator.push, named route, navigator.pop, pushreplacement, dialog, arguments, back button"),
+        ("go_router and deep links", "go_router, deep link"),
+        ("Nested navigation and guards", "nested, bottom navigation, authentication, transition, state of a screen"),
+    ],
+    "FLT105": [
+        ("HTTP clients", "http package, dio, timeout, retry, cancel, multipart, upload"),
+        ("JSON parsing", "parse, json_serializable, dart models"),
+        ("Auth, loading and errors", "401, jwt, sharedpreferences, loading, futurebuilder, base url, async*"),
+    ],
+    "FLT106": [
+        ("Key-value storage", "sharedpreferences, secure_storage, list of objects, synchronously"),
+        ("Databases", "sqflite, drift, hive, isar, migrate, isolates, box"),
+        ("Files and cache", "path_provider, files, cache, offline, clear"),
+    ],
+    "FLT107": [
+        ("Implicit vs explicit", "implicit, explicit, animatedcontainer, tween, curve, chain"),
+        ("Controllers and performance", "animationcontroller, tickerprovider, 60 fps, repaintboundary, custompainter, ticker, pause"),
+        ("Hero, Lottie and lists", "hero, lottie, rive, list item"),
+    ],
+    "FLT108": [
+        ("Testing", "unit, widget, integration, mock, pumpandsettle, by key, golden, coverage"),
+        ("CI/CD", "gitlab ci, every push, testflight, shorebird"),
+        ("Build and release", "appbundle, apk, sign, keystore, flavors, api keys"),
+    ],
+}
+
+# One written answer per lecture (question text -> answer); the rest of the "answered"
+# questions were answered orally, which is why is_answered and Answer are separate things.
+DEMO_ANSWERS = {
+    "What is the difference between final and const in Dart?":
+        "final is a run-time constant: assigned once, but the value can be computed. "
+        "const is a compile-time constant and the object is canonicalized, so two identical const values are the same instance.",
+    "What is the difference between Expanded and Flexible?":
+        "Both sit inside a Row/Column. Expanded forces the child to fill the free space (fit: tight); "
+        "Flexible lets the child be smaller than the space it is offered (fit: loose).",
+    "When is setState enough and when do I need a package?":
+        "setState is enough while the state is used by one widget subtree. The moment two distant screens need the same data, "
+        "or you want to test logic without widgets, move it to Provider/Riverpod/BLoC.",
+    "How do I pass arguments to a named route?":
+        "Navigator.pushNamed(context, '/details', arguments: item) and read ModalRoute.of(context)!.settings.arguments on the other side; "
+        "with go_router pass them as path or query parameters instead.",
+    "How should I handle a 401 response globally?":
+        "Add an interceptor (dio) or a wrapper around the client: on 401 try to refresh the token once, retry the request, "
+        "and if the refresh fails clear the session and go to the login screen.",
+    "When should I pick sqflite, Drift or Hive?":
+        "Relational data with queries and joins: Drift (type-safe) or raw sqflite. Simple objects and speed: Hive or Isar. "
+        "A few settings: SharedPreferences.",
+    "What is the difference between implicit and explicit animations?":
+        "Implicit (AnimatedContainer, AnimatedOpacity) animate automatically when a property changes. "
+        "Explicit ones give you an AnimationController, so you control start, stop, repeat and curves yourself.",
+    "What is the difference between unit, widget and integration tests?":
+        "Unit tests check pure Dart logic, widget tests pump a widget tree in memory and interact with it, "
+        "integration tests drive the whole app on a device or emulator.",
+}
+
+# Lecture text for FLT103: its topic plan is extracted from these headings (see qa/material.py)
+MATERIAL_CODE = "FLT103"
+DEMO_MATERIAL = """# Flutter 1 · Lecture 03 · State management
+
+Today we look at how data flows through a Flutter app and when a package is worth it.
+
+## setState and the widget lifecycle
+
+A StatefulWidget owns a State object. Calling setState schedules a rebuild of this subtree only.
+initState runs once, dispose runs when the element is removed; calling setState after dispose throws.
+Keep setState for state that a single widget needs; lifting state up means moving it to the lowest
+common ancestor.
+
+## InheritedWidget, Provider and Riverpod
+
+InheritedWidget propagates a value down the tree; descendants subscribe with
+dependOnInheritedWidgetOfExactType. Provider wraps this: ChangeNotifier, ChangeNotifierProvider,
+context.watch rebuilds the widget, context.read does not. Riverpod removes the BuildContext
+dependency: providers are global, testable and can be overridden in tests. ValueNotifier is the
+smallest ChangeNotifier; a StreamController is the reactive alternative.
+
+## BLoC and app architecture
+
+BLoC separates events from states with streams; good for large teams, more boilerplate.
+Repositories talk to the network and the database, notifiers or blocs hold screen state,
+widgets only render. Share state between tabs through a common ancestor, keep state when
+navigating back by not disposing the notifier.
+"""
+MANUAL_TAG_SHARE = 0.25          # share of tagged questions whose tag counts as chosen by a person
+
 FIRST_NAMES = [
     "Aigerim", "Daniyar", "Aruzhan", "Alikhan", "Dana", "Nursultan", "Madina", "Yerlan",
     "Kamila", "Arman", "Dias", "Zhanel", "Aidana", "Timur", "Saule", "Bekzat",
@@ -179,7 +286,7 @@ LECTURE_MINUTES = 90            # questions arrive within the lecture slot
 
 
 class Command(BaseCommand):
-    help = "Create 40 student accounts and 8 demo lectures with 100+ questions, upvotes and timestamps."
+    help = "Create 40 student accounts and 8 demo lectures with topics, 100+ tagged questions, answers, upvotes."
 
     def add_arguments(self, parser):
         parser.add_argument("--clear", action="store_true", help="Delete previously generated demo data first")
@@ -231,11 +338,40 @@ class Command(BaseCommand):
             lecture = Lecture.objects.create(title=title, code=code, is_open=is_open, owner=lecturer)
             Lecture.objects.filter(pk=lecture.pk).update(created_at=started)  # bypass auto_now_add
 
+            # Topic plan: extracted from the lecture text for one lecture, predefined for the others
+            if code == MATERIAL_CODE:
+                LectureMaterial.objects.create(lecture=lecture, title="lecture-03-state-management.md",
+                                               text=DEMO_MATERIAL, uploaded_by=lecturer)
+                for order, section in enumerate(plan_from_text(DEMO_MATERIAL), start=1):
+                    Topic.objects.create(lecture=lecture, title=section.title, keywords=", ".join(section.keywords),
+                                         description=section.body, order=order)
+            else:
+                for order, (topic_title, keywords) in enumerate(DEMO_TOPICS[code], start=1):
+                    Topic.objects.create(lecture=lecture, title=topic_title, keywords=keywords, order=order)
+            topics = list(lecture.topics.all())
+
             questions = []
-            for text in DEMO_QUESTIONS[code]:
+            texts = DEMO_QUESTIONS[code]
+            suggestions = tagging.suggest_topics(lecture, texts, topics)   # the real model tags the demo data
+            for text, suggestion in zip(texts, suggestions):
                 answered = (not is_open) and rng.random() < ANSWERED_SHARE
-                questions.append(Question(lecture=lecture, text=text, author=rng.choice(students), is_answered=answered))
+                if text in DEMO_ANSWERS:
+                    answered = True  # a written answer implies the question is answered
+                question = Question(lecture=lecture, text=text, author=rng.choice(students), is_answered=answered)
+                if suggestion.tagged:
+                    question.topic = suggestion.topic
+                    if rng.random() < MANUAL_TAG_SHARE:
+                        question.tag_source, question.tag_score = Question.TagSource.MANUAL, None
+                    else:
+                        question.tag_source, question.tag_score = Question.TagSource.AUTO, suggestion.score
+                questions.append(question)
             Question.objects.bulk_create(questions)
+
+            answers = [
+                Answer(question=question, text=DEMO_ANSWERS[question.text], author=lecturer)
+                for question in questions if question.text in DEMO_ANSWERS
+            ]
+            Answer.objects.bulk_create(answers)
 
             # Spread the questions over the lecture slot, oldest first
             offsets = sorted(rng.randint(1, window - 1) for _ in questions)
@@ -252,11 +388,18 @@ class Command(BaseCommand):
 
             questions_total += len(questions)
             upvotes_total += len(upvotes)
-            self.stdout.write(f"  {code}  {title}: {len(questions)} questions, {len(upvotes)} upvotes")
+            tagged = sum(1 for question in questions if question.topic_id)
+            self.stdout.write(
+                f"  {code}  {title}: {len(topics)} topics, {len(questions)} questions ({tagged} tagged), "
+                f"{len(answers)} answer(s), {len(upvotes)} upvotes"
+            )
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Seeded {len(DEMO_LECTURES)} lectures, {questions_total} questions, "
+                f"Seeded {len(DEMO_LECTURES)} lectures with {Topic.objects.filter(lecture__code__in=codes).count()} topics, "
+                f"{questions_total} questions "
+                f"({Question.objects.filter(lecture__code__in=codes, topic__isnull=False).count()} tagged), "
+                f"{Answer.objects.filter(question__lecture__code__in=codes).count()} answers, "
                 f"{upvotes_total} upvotes from {STUDENTS} students."
             )
         )

@@ -20,7 +20,7 @@ def find_lecture(queryset: QuerySet, key: str) -> Lecture:
 
 def with_votes(queryset: QuerySet, user=None) -> QuerySet:
     """Annotate questions with their vote count and whether `user` has voted (False for anonymous)."""
-    queryset = queryset.select_related("lecture", "lecture__owner", "author").annotate(
+    queryset = queryset.select_related("lecture", "lecture__owner", "author", "topic", "answer", "answer__author").annotate(
         votes=Count("upvotes", distinct=True)
     )
     if user is not None and user.is_authenticated:
@@ -32,3 +32,8 @@ def with_votes(queryset: QuerySet, user=None) -> QuerySet:
 def questions_for(lecture: Lecture, user=None) -> QuerySet:
     """Questions of a lecture in screen order: most wanted first, answered ones at the bottom."""
     return with_votes(Question.objects.filter(lecture=lecture), user).order_by("is_answered", "-votes", "created_at")
+
+
+def topics_for(lecture: Lecture) -> QuerySet:
+    """Topics of a lecture in plan order, each with its number of questions."""
+    return lecture.topics.annotate(question_count=Count("questions")).order_by("order", "id")

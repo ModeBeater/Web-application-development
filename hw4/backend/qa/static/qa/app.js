@@ -59,6 +59,20 @@ const RH = (() => {
       return data;
     },
 
+    // multipart/form-data POST (file uploads); same token handling as api()
+    async upload(path, formData, _retry = true) {
+      const headers = { Accept: "application/json" };
+      const access = store.get(KEYS.access);
+      if (access) headers.Authorization = `Bearer ${access}`;
+      const res = await fetch(path, { method: "POST", headers, body: formData });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && _retry && store.get(KEYS.refresh)) {
+        if (await this.refreshTokens()) return this.upload(path, formData, false);
+      }
+      if (!res.ok) throw new ApiError(this.errorMessage(data, res.status), res.status, data);
+      return data;
+    },
+
     async refreshTokens() {
       const refresh = store.get(KEYS.refresh);
       if (!refresh) return false;
@@ -210,12 +224,17 @@ const RH = (() => {
 
     // ------------------------------------------------------------- questions
     // Build the question list. opts.mode: "audience" | "screen"; opts.onChange re-renders after an action.
+    // opts.topics: the lecture's topics (for the topic picker and the chip colours); opts.topicFilter: id | "none" | null
     renderQuestions(container, questions, opts = {}) {
-      const { mode = "audience", onChange = () => {} } = opts;
+      const { mode = "audience", onChange = () => {}, topics = [], topicFilter = null } = opts;
       container.textContent = "";
+      if (topicFilter !== null && topicFilter !== undefined) {
+        questions = questions.filter((q) => topicFilter === "none" ? !q.topic_id : q.topic_id === topicFilter);
+      }
       if (!questions.length) {
         container.append(this.el("div", { class: "empty" },
           this.el("div", { class: "big" }, "🙋"),
+          topicFilter ? "No questions on this topic yet." :
           mode === "screen" ? "No questions yet — scan the code and ask one." : "No questions yet. Be the first!"));
         return;
       }
@@ -243,9 +262,15 @@ const RH = (() => {
           this.el("span", {}, "·"),
           this.el("span", {}, this.fmtTime(q.created_at)),
           q.lecture_title && mode === "list" ? this.el("a", { href: `/l/${q.lecture_code}/` }, q.lecture_title) : null,
+          this.topicChip(q, topics),
           q.is_answered ? this.el("span", { class: "pill answered" }, "answered") : null,
         );
         body.append(text, who);
+        if (q.answer) {
+          body.append(this.el("div", { class: "answer" },
+            this.el("div", { class: "answer-label" }, "Answer", this.el("span", { class: "muted" }, ` · ${q.answer.author ? q.answer.author.display_name : "lecturer"}`)),
+            this.el("div", { class: "answer-text" }, q.answer.text)));
+        }
 
         const tools = this.el("div", { class: "tools" });
         if (q.can_answer) {
@@ -253,6 +278,11 @@ const RH = (() => {
             try { await this.api(`/api/questions/${q.id}/answered/`, { method: "POST" }); await onChange(); }
             catch (e) { this.toast(e.message, "error"); }
           } }, q.is_answered ? "Reopen" : "Mark answered"));
+          if (mode !== "screen") {
+            tools.append(this.el("button", { class: "sm ghost", type: "button", onclick: () => this.answerEditor(card, q, onChange) },
+              q.answer ? "Edit answer" : "Write answer"));
+            if (topics.length) tools.append(this.topicPicker(q, topics, onChange));
+          }
         }
         if (q.can_edit && mode !== "screen") {
           tools.append(this.el("button", { class: "sm ghost", type: "button", onclick: () => {
@@ -278,6 +308,95 @@ const RH = (() => {
         card.append(vote, body);
         container.append(card);
       }
+    },
+
+    // ---------------------------------------------------------- topics, answers
+    topicIndex(topics, id) { const i = topics.findIndex((t) => t.id === id); return i < 0 ? 0 : i % 8; },
+    topicChip(q, topics = []) {
+      if (!q.topic_id) return null;
+      const auto = q.tag_source === "auto";
+      const chip = this.el("span", { class: `pill topic t${this.topicIndex(topics, q.topic_id)}` }, q.topic_title || "topic",
+        auto ? this.el("span", { class: "auto", title: `Tagged by the model, confidence ${(q.tag_score || 0).toFixed(2)}` }, "·auto") : null);
+      chip.title = auto ? `Topic suggested automatically (score ${(q.tag_score || 0).toFixed(2)})` : "Topic chosen by a person";
+      return chip;
+    },
+    // <select> that re-tags the question (lecturer / admin): PATCH topic_id; "" = no topic
+    topicPicker(q, topics, onChange) {
+      const select = this.el("select", { class: "sm topic-select", title: "Change the topic" },
+        this.el("option", { value: "" }, "— no topic —"),
+        ...topics.map((t) => this.el("option", { value: t.id, selected: t.id === q.topic_id }, t.title)));
+      select.addEventListener("change", async () => {
+        try { await this.api(`/api/questions/${q.id}/`, { method: "PATCH", body: { topic_id: select.value ? Number(select.value) : null } }); await onChange(); }
+        catch (e) { this.toast(e.message, "error"); }
+      });
+      return select;
+    },
+    answerEditor(card, q, onChange) {
+      if (card.querySelector("form.answer-form")) return;
+      const area = this.el("textarea", { maxlength: "2000", placeholder: "Your written answer — the audience sees it under the question" });
+      area.value = q.answer ? q.answer.text : "";
+      const form = this.el("form", { class: "answer-form" }, area, this.el("div", { class: "row" },
+        this.el("button", { class: "sm primary fixed", type: "submit" }, q.answer ? "Save answer" : "Publish answer"),
+        q.answer ? this.el("button", { class: "sm danger ghost fixed", type: "button", onclick: async () => {
+          if (!(await this.confirm("Remove the written answer? The question will be reopened."))) return;
+          try { await this.api(`/api/questions/${q.id}/answer/`, { method: "DELETE" }); this.toast("Answer removed"); await onChange(); }
+          catch (e) { this.toast(e.message, "error"); }
+        } }, "Remove") : null,
+        this.el("button", { class: "sm ghost fixed", type: "button", onclick: () => form.remove() }, "Cancel")));
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try { await this.api(`/api/questions/${q.id}/answer/`, { method: "PUT", body: { text: area.value } }); this.toast("Answer published", "ok"); await onChange(); }
+        catch (err) { this.toast(err.message, "error"); }
+      });
+      card.querySelector(".tools").after(form); area.focus();
+    },
+    // Chip row "All · topic (n) · No topic (n)"; calls onSelect(id | "none" | null)
+    topicFilterBar(container, topics, questions, current, onSelect) {
+      container.textContent = "";
+      if (!topics.length) { container.classList.add("hidden"); return; }
+      container.classList.remove("hidden");
+      const count = (id) => questions.filter((q) => id === "none" ? !q.topic_id : q.topic_id === id).length;
+      const chip = (label, value, n, extra = "") => {
+        const b = this.el("button", { class: `chip${current === value ? " active" : ""} ${extra}`, type: "button" }, label,
+          n !== null ? this.el("span", { class: "n" }, n) : null);
+        b.addEventListener("click", () => onSelect(current === value ? null : value));
+        return b;
+      };
+      container.append(chip("All", null, questions.length));
+      topics.forEach((t, i) => container.append(chip(t.title, t.id, count(t.id), `t${i % 8}`)));
+      if (count("none")) container.append(chip("No topic", "none", count("none")));
+    },
+    debounce(fn, ms = 400) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); }; },
+    // Live hints under the question field: similar questions already asked + the topic the model would pick
+    async askAssistant(code, text, box, onChange) {
+      box.textContent = "";
+      if (text.trim().length < 6) { box.classList.add("hidden"); return; }
+      try {
+        const [similar, suggestion] = await Promise.all([
+          this.api(`/api/lectures/${code}/similar/?text=${encodeURIComponent(text)}`, { auth: false }),
+          this.api(`/api/lectures/${code}/suggest/?text=${encodeURIComponent(text)}`, { auth: false }),
+        ]);
+        if (suggestion.topic_title) {
+          box.append(this.el("div", { class: "hint-line" }, "Will be filed under ",
+            this.el("span", { class: "pill topic" }, suggestion.topic_title),
+            this.el("span", { class: "muted small" }, ` (confidence ${suggestion.score.toFixed(2)}) — or pick a topic below`)));
+        }
+        if (similar.length) {
+          box.append(this.el("div", { class: "hint-line" }, this.el("strong", {}, "Already asked?"), " Upvote instead of posting a duplicate:"));
+          for (const m of similar) {
+            const { question: q } = m;
+            box.append(this.el("div", { class: "similar" },
+              this.el("button", { class: `vote sm${q.voted ? " on" : ""}`, type: "button", onclick: async () => {
+                if (!this.requireAuth()) return;
+                try { await this.api(`/api/questions/${q.id}/upvote/`, { method: "POST" }); this.toast(q.voted ? "Vote removed" : "Voted", "ok"); await onChange(); }
+                catch (e) { this.toast(e.message, "error"); }
+              } }, this.el("span", {}, q.votes), this.el("small", {}, "me too")),
+              this.el("span", { class: "sim-text" }, q.text),
+              this.el("span", { class: "muted small" }, `${Math.round(m.similarity * 100)}%`)));
+          }
+        }
+        box.classList.toggle("hidden", !box.childElementCount);
+      } catch { box.classList.add("hidden"); }
     },
 
     // Poll the API for a lecture and hand the payload to the page. Returns the refresh function.

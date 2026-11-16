@@ -1,8 +1,8 @@
 {
   "info": {
-    "_postman_id": "2b6df097-5ab3-4d1b-801e-c86f7a3cedea",
-    "name": "Raise Hand API (HW4 · JWT, roles)",
-    "description": "Live Q&A for lectures — Django REST Framework + SimpleJWT + PostgreSQL in Docker Compose.\n\nRun the whole collection with the Runner (or newman): folder 1 registers a student and a lecturer and stores their tokens in collection variables; the lecturer token is the collection's default Bearer token, individual requests switch to the student or admin token to demonstrate 401/403; folder 6 signs in as the demo admin and deletes the throw-away accounts.\n\nVariables: baseUrl, demoPassword (DEMO_PASSWORD from .env, used only for the admin), the rest are filled automatically.\n\nDocs: {{baseUrl}}/docs/ (Swagger UI with an Authorize button), docs/API.md in the repository.",
+    "_postman_id": "fb4fc656-1df1-4465-adde-25be13098267",
+    "name": "Raise Hand API (HW4 · JWT, roles, topics & tagging)",
+    "description": "Live Q&A for lectures — Django REST Framework + SimpleJWT + PostgreSQL in Docker Compose.\n\nRun the whole collection with the Runner (or newman): folder 1 registers a student and a lecturer and stores their tokens in collection variables; the lecturer token is the collection's default Bearer token, individual requests switch to the student or admin token to demonstrate 401/403; folder 3b walks through the final-project features (topics, lecture material, automatic tagging, answers, summary, export); folder 6 signs in as the demo admin and deletes the throw-away accounts.\n\nVariables: baseUrl, demoPassword (DEMO_PASSWORD from .env, used only for the admin), the rest are filled automatically.\n\nDocs: {{baseUrl}}/docs/ (Swagger UI with an Authorize button), docs/API.md in the repository.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -2250,6 +2250,1369 @@
       ]
     },
     {
+      "name": "3b · Topics, tagging, answers (final project)",
+      "description": "Final-project features: topic plan (one-to-many), lecture material (one-to-one), the TF-IDF tagging model (auto / manual / untagged), similar-question hints, written answers (one-to-one), per-topic summary and Markdown export.",
+      "item": [
+        {
+          "name": "Add topic as student → 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_access}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Student topic\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"Only the owner\", () => pm.expect(pm.response.json().detail).to.include(\"owner\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add topic (lecturer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": "Lecture 1 → * Topic (ForeignKey, CASCADE). The title is unique within the lecture.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Images and layers\",\n  \"keywords\": \"image, layer, cache, dockerfile\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Topic belongs to the lecture\", () => { const b = pm.response.json(); pm.expect(b.lecture_id).to.eql(Number(pm.collectionVariables.get(\"lecture_id\"))); pm.expect(b.order).to.eql(1); });",
+                  "pm.collectionVariables.set(\"topic_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add duplicate topic → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"images AND layers\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Unique per lecture\", () => pm.expect(pm.response.json().title[0]).to.include(\"already has\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload lecture material (JSON) → topics from headings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/material/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "material",
+                ""
+              ]
+            },
+            "description": "Lecture 1 → 1 LectureMaterial (OneToOneField). Markdown headings become topics; 'Images and layers' already exists and is updated, two topics are created. A multipart upload of a .txt/.md/.pdf file works the same way (field `file`).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"docker-lecture.md\",\n  \"text\": \"# Postman demo lecture\\n\\nA short lecture about Docker for the Postman run.\\n\\n## Images and layers\\n\\nA Dockerfile builds an image layer by layer; a changed instruction invalidates the cache of every layer below it. Keep requirements.txt before the source code so pip install stays cached.\\n\\n## Networking and ports\\n\\nEXPOSE documents a port; publishing happens with ports: in Compose or -p on the command line. Containers on one network reach each other by service name.\\n\\n## Volumes and persistence\\n\\nNamed volumes survive docker compose down; down -v deletes them. Bind mounts map a host folder into the container.\\n\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Material stored, topics created/updated, questions re-tagged\", () => { const b = pm.response.json(); pm.expect(b.material.characters).to.be.above(100); pm.expect(b.topics_created).to.eql(2); pm.expect(b.topics_updated).to.eql(1); pm.expect(b.topics.length).to.eql(3); pm.expect(b.retag).to.include.keys(\"processed\", \"tagged\", \"untagged\", \"topics\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get material",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/material/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "material",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Uploaded by the lecturer\", () => pm.expect(pm.response.json().uploaded_by.username).to.eql(pm.collectionVariables.get(\"lecturer_username\")));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Topics of the lecture",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/topics/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "topics",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Three topics with keywords\", () => { const b = pm.response.json(); pm.expect(b.count).to.eql(3); for (const t of b.results) pm.expect(t.keywords).to.be.a(\"string\").and.not.empty; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Preview the automatic tag (?text=)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/suggest/?text=Why does docker compose down -v delete my database?",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "suggest",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "text",
+                  "value": "Why does docker compose down -v delete my database?"
+                }
+              ]
+            },
+            "description": "Nothing is stored — the frontend shows this next to the question field while the student types.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Model picks Volumes and persistence with a score per topic\", () => { const b = pm.response.json(); pm.expect(b.topic_title).to.eql(\"Volumes and persistence\"); pm.expect(b.scores).to.have.lengthOf(3); pm.expect(b.score).to.be.at.least(b.threshold); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask: the model tags it (student)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_access}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"If I rebuild the image, which layers are taken from the cache?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"tag_source auto with a score\", () => { const b = pm.response.json(); pm.expect(b.topic_title).to.eql(\"Images and layers\"); pm.expect(b.tag_source).to.eql(\"auto\"); pm.expect(b.tag_score).to.be.a(\"number\"); });",
+                  "pm.collectionVariables.set(\"tagged_question_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask: the student picks the topic",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_access}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Can two containers share one named volume?\",\n  \"topic_id\": \"{{topic_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"tag_source manual, no score\", () => { const b = pm.response.json(); pm.expect(b.topic_id).to.eql(Number(pm.collectionVariables.get(\"topic_id\"))); pm.expect(b.tag_source).to.eql(\"manual\"); pm.expect(b.tag_score).to.eql(null); });",
+                  "pm.collectionVariables.set(\"manual_question_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask: off-topic question stays untagged",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_access}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Will the exam be online?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"No topic\", () => { const b = pm.response.json(); pm.expect(b.topic_id).to.eql(null); pm.expect(b.tag_source).to.eql(\"\"); });",
+                  "pm.collectionVariables.set(\"untagged_question_id\", pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ask with a topic of another lecture → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/KBTU26/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "KBTU26",
+                "questions",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_access}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Wrong lecture?\",\n  \"topic_id\": \"{{topic_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"topic_id rejected\", () => pm.expect(pm.response.json().topic_id[0]).to.include(\"another lecture\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Similar questions while typing (?text=)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/similar/?text=which layers come from the cache when I rebuild?",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "similar",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "text",
+                  "value": "which layers come from the cache when I rebuild?"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Finds the question just asked\", () => { const b = pm.response.json(); pm.expect(b.length).to.be.above(0); pm.expect(b[0].question.id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))); pm.expect(b[0].similarity).to.be.above(0.35); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Questions of a topic",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/{{topic_id}}/questions/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}",
+                "questions",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Both tagged questions\", () => pm.expect(pm.response.json().results.map(q => q.id)).to.include.members([Number(pm.collectionVariables.get(\"tagged_question_id\")), Number(pm.collectionVariables.get(\"manual_question_id\"))]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter questions: ?topic= & ?tag_source=auto",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?lecture={{lecture_code}}&topic={{topic_id}}&tag_source=auto",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "lecture",
+                  "value": "{{lecture_code}}"
+                },
+                {
+                  "key": "topic",
+                  "value": "{{topic_id}}"
+                },
+                {
+                  "key": "tag_source",
+                  "value": "auto"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Only the auto-tagged one\", () => { const b = pm.response.json(); pm.expect(b.count).to.eql(1); pm.expect(b.results[0].id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lecturer re-tags a question (PATCH topic_id → manual)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic_id\": \"{{topic_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Now manual\", () => pm.expect(pm.response.json().tag_source).to.eql(\"manual\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student writes an answer → 403",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_access}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"I think...\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 403\", () => pm.response.to.have.status(403));",
+                  "pm.test(\"Only owner/admin answer\", () => pm.expect(pm.response.json().detail).to.include(\"answer\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lecturer writes the answer (PUT → 201)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": "Question 1 → 1 Answer (OneToOneField, CASCADE). The first PUT creates (201), a second PUT replaces (200).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Every layer above the first changed instruction is reused from the cache; everything below is rebuilt.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Answer by the lecturer, question answered\", () => { const b = pm.response.json(); pm.expect(b.author.username).to.eql(pm.collectionVariables.get(\"lecturer_username\")); pm.expect(b.question_id).to.eql(Number(pm.collectionVariables.get(\"tagged_question_id\"))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replace the answer (PUT → 200)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Layers are cached top to bottom: the first changed instruction invalidates everything after it.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Question embeds the answer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"is_answered + answer\", () => { const b = pm.response.json(); pm.expect(b.is_answered).to.be.true; pm.expect(b.answer.text).to.include(\"cached\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Questions with a written answer (?has_answer=true)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/?lecture={{lecture_code}}&has_answer=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "lecture",
+                  "value": "{{lecture_code}}"
+                },
+                {
+                  "key": "has_answer",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Exactly one\", () => pm.expect(pm.response.json().count).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lecture summary (per topic)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/summary/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "summary",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Totals and a topics breakdown\", () => { const b = pm.response.json(); pm.expect(b.questions).to.eql(3); pm.expect(b.with_written_answer).to.eql(1); pm.expect(b.untagged).to.eql(1); pm.expect(b.topics[b.topics.length - 1].title).to.eql(\"No topic\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Export as Markdown",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/export/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "export",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Markdown with topics and the answer\", () => { pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/markdown\"); pm.expect(pm.response.text()).to.include(\"## Images and layers\"); pm.expect(pm.response.text()).to.include(\"*Answer (\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-tag all questions (lecturer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/retag/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "retag",
+                ""
+              ]
+            },
+            "description": "Runs the model again — after the plan changed. Manual tags are kept (?include_manual=true to redo them too)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Manual tags skipped\", () => { const b = pm.response.json(); pm.expect(b.topics).to.eql(3); pm.expect(b.processed).to.eql(1); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete the answer → question reopened",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{tagged_question_id}}/answer/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{tagged_question_id}}",
+                "answer",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete topic → questions keep, topic_id null",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/topics/{{topic_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "topics",
+                "{{topic_id}}",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Question after topic deletion",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/questions/{{manual_question_id}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "questions",
+                "{{manual_question_id}}",
+                ""
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Untagged but alive, reopened\", () => { const b = pm.response.json(); pm.expect(b.topic_id).to.eql(null); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete material (lecturer)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/material/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "material",
+                ""
+              ]
+            },
+            "description": ""
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "4 · Delete lecture (lecturer)",
       "description": "",
       "item": [
@@ -3228,7 +4591,7 @@
                 "exec": [
                   "// Assertions run after the response arrives (see the Test Results tab).",
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Declares JWT bearer auth and 19 paths\", () => { const s = pm.response.json(); pm.expect(s.components.securitySchemes.jwtAuth.bearerFormat).to.eql(\"JWT\"); pm.expect(Object.keys(s.paths)).to.have.lengthOf(19); });"
+                  "pm.test(\"Declares JWT bearer auth and 30 paths\", () => { const s = pm.response.json(); pm.expect(s.components.securitySchemes.jwtAuth.bearerFormat).to.eql(\"JWT\"); pm.expect(Object.keys(s.paths)).to.have.lengthOf(30); });"
                 ]
               }
             }
@@ -3315,6 +4678,26 @@
     },
     {
       "key": "question_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "topic_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tagged_question_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "manual_question_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "untagged_question_id",
       "value": "",
       "type": "string"
     }

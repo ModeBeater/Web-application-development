@@ -133,6 +133,7 @@
           RH.el("div", { class: "actions" },
             RH.el("a", { class: "btn sm", href: `/l/${l.code}/screen/` }, "Screen"),
             RH.el("a", { class: "btn sm ghost", href: `/l/${l.code}/` }, "Audience"),
+            RH.el("a", { class: "btn sm ghost", href: `/l/${l.code}/plan/` }, `Topics${l.topic_count ? ` (${l.topic_count})` : ""}`),
             RH.el("button", { class: "sm ghost", type: "button", onclick: async () => { try { await RH.api(`/api/lectures/${l.id}/toggle/`, { method: "POST" }); await loadLectures(); } catch (e) { RH.toast(e.message, "error"); } } }, l.is_open ? "Close" : "Reopen"),
             RH.el("button", { class: "sm danger ghost", type: "button", onclick: async () => {
               if (!(await RH.confirm(`Delete "${l.title}"?`))) return;

@@ -11,6 +11,7 @@ app_name = "qa"
 #   questions -> /api/questions/, /api/questions/{id}/, /api/questions/{id}/upvote/, /api/questions/{id}/answered/
 router = SimpleRouter()
 router.register("lectures", api.LectureViewSet, basename="lecture")
+router.register("topics", api.TopicViewSet, basename="topic")
 router.register("questions", api.QuestionViewSet, basename="question")
 
 urlpatterns = [
@@ -22,6 +23,7 @@ urlpatterns = [
     path("users/", views.users_page, name="users"),
     path("l/<str:code>/", views.lecture_page, name="lecture"),
     path("l/<str:code>/screen/", views.screen, name="screen"),
+    path("l/<str:code>/plan/", views.plan, name="plan"),
     # API documentation: OpenAPI 3 schema generated from the code, rendered by Swagger UI
     path("docs/", SpectacularSwaggerView.as_view(url_name="qa:schema"), name="docs"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

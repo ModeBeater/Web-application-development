@@ -9,7 +9,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient, APITestCase
 
 from . import tunnel
-from .models import Lecture, Question, Upvote
+from .models import Answer, Lecture, LectureMaterial, Question, Topic, Upvote
 
 User = get_user_model()
 DEMO_CODE = "KBTU26"  # created by the seed migration together with the demo accounts
@@ -217,7 +217,7 @@ class PermissionTests(AuthenticatedMixin, APITestCase):
 class LectureApiTests(AuthenticatedMixin, APITestCase):
     def test_api_root_links_everything(self):
         data = self.client.get(reverse("qa:api-root")).json()
-        self.assertEqual(data["version"], "3.0")
+        self.assertEqual(data["version"], "4.0")
         self.assertTrue(data["auth"]["login"].endswith("/api/auth/login/"))
         self.assertTrue(data["users"].endswith("/api/users/"))
 
@@ -307,7 +307,13 @@ class QuestionApiTests(AuthenticatedMixin, APITestCase):
         self.assertIn("offset=3", page["next"])
         self.assertEqual(self.client.get(url, {"lecture": DEMO_CODE}).json()["count"], 3)
         self.assertEqual(self.client.get(url, {"lecture": "NOPE42"}).status_code, 404)
-        self.assertEqual([q["text"] for q in self.client.get(url, {"is_answered": "true"}).json()["results"]], ["Other lecture question"])
+        self.assertEqual(
+            [q["text"] for q in self.client.get(url, {"is_answered": "true"}).json()["results"]],
+            ["Other lecture question", "Can I build iOS apps with Flutter on Windows?"],  # the latter has a seeded Answer
+        )
+        self.assertEqual(self.client.get(url, {"has_answer": "true"}).json()["count"], 1)
+        self.assertEqual(self.client.get(url, {"tag_source": "manual"}).json()["count"], 3)
+        self.assertEqual(self.client.get(url, {"tag_source": "none"}).json()["count"], 1)
         self.assertEqual(self.client.get(url, {"search": "aigerim"}).json()["count"], 1)  # author name
         self.assertEqual(self.client.get(url, {"ordering": "-votes"}).json()["results"][0]["id"], self.first.id)
         self.assertEqual(self.as_(self.student).get(url, {"author": "me"}).json()["count"], 2)
@@ -321,7 +327,9 @@ class QuestionApiTests(AuthenticatedMixin, APITestCase):
     def test_answered_questions_sink_to_the_bottom(self):
         self.as_(self.lecturer).post(reverse("qa:question-answered", args=[self.first.id]))
         detail = self.client.get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
-        self.assertEqual(detail["questions"][-1]["id"], self.first.id)
+        flags = [q["is_answered"] for q in detail["questions"]]
+        self.assertEqual(flags, sorted(flags))                          # open first, answered last
+        self.assertEqual(detail["questions"][-2]["id"], self.first.id)  # among the answered: more votes first
 
     def test_delete_question_removes_upvotes(self):
         url = reverse("qa:question-detail", args=[self.first.id])
@@ -334,6 +342,213 @@ class QuestionApiTests(AuthenticatedMixin, APITestCase):
 # ---------------------------------------------------------------------------
 
 
+class TopicApiTests(AuthenticatedMixin, APITestCase):
+    """Topics: Lecture 1 -> * Topic (CASCADE); only the lecture owner or an admin changes the plan."""
+
+    def setUp(self):
+        super().setUp()
+        self.topic = self.lecture.topics.first()  # "Dart language" from the seed migration
+        self.other = Lecture.objects.create(title="Another lecture", owner=self.lecturer)
+        self.other_topic = Topic.objects.create(lecture=self.other, title="Foreign topic")
+
+    def test_lecture_lists_topics_and_embeds_them(self):
+        data = self.anonymous().get(reverse("qa:lecture-topics", args=[DEMO_CODE])).json()
+        self.assertEqual([t["title"] for t in data["results"]], ["Dart language", "Tooling and setup", "Platforms"])
+        self.assertEqual(data["results"][0]["question_count"], 1)
+        detail = self.anonymous().get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
+        self.assertEqual((detail["topic_count"], len(detail["topics"]), detail["has_material"]), (3, 3, False))
+
+    def test_only_owner_or_admin_manage_topics(self):
+        url = reverse("qa:lecture-topics", args=[DEMO_CODE])
+        self.assertEqual(self.anonymous().post(url, {"title": "Hot reload"}, format="json").status_code, 401)
+        self.assertEqual(self.as_(self.student).post(url, {"title": "Hot reload"}, format="json").status_code, 403)
+        created = self.as_(self.lecturer).post(url, {"title": "  Hot   reload ", "keywords": "Hot Reload, restart"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual((created.json()["title"], created.json()["keywords"], created.json()["order"]), ("Hot reload", "hot reload, restart", 4))
+        self.assertEqual(self.as_(self.lecturer).post(url, {"title": "hot reload"}, format="json").status_code, 400)  # duplicate
+
+        detail = reverse("qa:topic-detail", args=[self.topic.id])
+        self.assertEqual(self.as_(self.student).patch(detail, {"keywords": "x"}, format="json").status_code, 403)
+        self.assertEqual(self.as_(self.admin).patch(detail, {"keywords": "dart, null-safety"}, format="json").status_code, 200)
+        self.assertEqual(self.as_(self.student).delete(detail).status_code, 403)
+        self.assertEqual(self.as_(self.lecturer).delete(detail).status_code, 204)
+
+    def test_topic_questions_and_filters(self):
+        self.assertEqual(self.anonymous().get(reverse("qa:topic-questions", args=[self.topic.id])).json()["count"], 1)
+        self.assertEqual(self.anonymous().get(reverse("qa:question-list"), {"topic": self.topic.id}).json()["count"], 1)
+        self.assertEqual(self.anonymous().get(reverse("qa:topic-list"), {"lecture": DEMO_CODE.lower()}).json()["count"], 3)
+        self.assertEqual(self.anonymous().get(reverse("qa:topic-list"), {"lecture": "NOPE42"}).status_code, 404)
+
+    def test_manual_tag_must_belong_to_the_lecture(self):
+        url = reverse("qa:lecture-questions", args=[DEMO_CODE])
+        bad = self.as_(self.student).post(url, {"text": "Wrong topic?", "topic_id": self.other_topic.id}, format="json")
+        self.assertEqual((bad.status_code, bad.json()), (400, {"topic_id": ["This topic belongs to another lecture."]}))
+        good = self.as_(self.student).post(url, {"text": "Is Dart similar to Kotlin?", "topic_id": self.topic.id}, format="json")
+        self.assertEqual(good.status_code, 201)
+        self.assertEqual((good.json()["topic_title"], good.json()["tag_source"], good.json()["tag_score"]), ("Dart language", "manual", None))
+        detail = reverse("qa:question-detail", args=[good.json()["id"]])
+        self.assertEqual(self.as_(self.student).patch(detail, {"topic_id": None}, format="json").json()["tag_source"], "")
+
+    def test_deleting_topic_keeps_questions_and_deleting_lecture_cascades(self):
+        question = self.topic.questions.first()
+        self.as_(self.lecturer).delete(reverse("qa:topic-detail", args=[self.topic.id]))
+        question.refresh_from_db()
+        self.assertIsNone(question.topic_id)                              # SET_NULL
+        self.as_(self.lecturer).delete(reverse("qa:lecture-detail", args=[self.other.id]))
+        self.assertFalse(Topic.objects.filter(pk=self.other_topic.pk).exists())  # CASCADE
+
+
+class TaggingTests(AuthenticatedMixin, APITestCase):
+    """The tagging model (qa/tagging.py): auto tags on create, preview, similar questions, re-tagging."""
+
+    def setUp(self):
+        super().setUp()
+        self.lecture.topics.all().delete()
+        self.dart = Topic.objects.create(lecture=self.lecture, title="Dart language", keywords="dart, null safety, late, final", order=1,
+                                         description="Variables, types, null safety, async and await in Dart.")
+        self.tooling = Topic.objects.create(lecture=self.lecture, title="Tooling and IDE", keywords="vs code, android studio, sdk", order=2,
+                                            description="Installing the SDK, choosing an IDE, hot reload and DevTools.")
+
+    def test_question_without_topic_is_tagged_automatically(self):
+        response = self.as_(self.student).post(
+            reverse("qa:lecture-questions", args=[DEMO_CODE]), {"text": "Why is null safety mandatory in Dart 3?"}, format="json"
+        )
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual((data["topic_id"], data["tag_source"]), (self.dart.id, "auto"))
+        self.assertGreaterEqual(data["tag_score"], 0.18)
+
+    def test_unrelated_question_stays_untagged(self):
+        data = self.as_(self.student).post(
+            reverse("qa:lecture-questions", args=[DEMO_CODE]), {"text": "Will there be a retake exam in January?"}, format="json"
+        ).json()
+        self.assertEqual((data["topic_id"], data["tag_source"], data["tag_score"]), (None, "", None))
+
+    def test_suggest_previews_without_saving(self):
+        before = Question.objects.count()
+        data = self.anonymous().get(reverse("qa:lecture-suggest", args=[DEMO_CODE]), {"text": "Should I install Android Studio or VS Code?"}).json()
+        self.assertEqual(data["topic_id"], self.tooling.id)
+        self.assertEqual([row["topic_id"] for row in data["scores"]][0], self.tooling.id)
+        self.assertEqual(Question.objects.count(), before)
+        self.assertEqual(self.anonymous().get(reverse("qa:lecture-suggest", args=[DEMO_CODE])).status_code, 400)
+
+    def test_similar_questions(self):
+        data = self.anonymous().get(reverse("qa:lecture-similar", args=[DEMO_CODE]), {"text": "Do I need to know Dart before Flutter?"}).json()
+        self.assertTrue(data)
+        self.assertIn("Dart well before starting", data[0]["question"]["text"])
+        self.assertGreaterEqual(data[0]["similarity"], 0.35)
+        self.assertEqual(self.anonymous().get(reverse("qa:lecture-similar", args=[DEMO_CODE]), {"text": "zzz"}).json(), [])
+
+    def test_retag_is_for_owner_and_keeps_manual_tags(self):
+        url = reverse("qa:lecture-retag", args=[DEMO_CODE])
+        self.assertEqual(self.as_(self.student).post(url).status_code, 403)
+        manual = Question.objects.filter(lecture=self.lecture).first()
+        manual.topic, manual.tag_source = self.tooling, Question.TagSource.MANUAL
+        manual.save()
+        result = self.as_(self.lecturer).post(url).json()
+        self.assertEqual(result["topics"], 2)
+        self.assertEqual(result["processed"], 2)  # the manual one is skipped
+        manual.refresh_from_db()
+        self.assertEqual(manual.topic_id, self.tooling.id)
+        self.assertEqual(self.as_(self.lecturer).post(url + "?include_manual=true").json()["processed"], 3)
+
+
+class MaterialApiTests(AuthenticatedMixin, APITestCase):
+    """Lecture material: Lecture 1 -> 1 LectureMaterial; upload builds the topic plan."""
+
+    MARKDOWN = (
+        "# Flutter 1 · Lecture 00\n\nIntro.\n\n## Dart language\n\nVariables, final and const, null safety, late.\n\n"
+        "## Tooling and setup\n\nInstall the SDK, pick VS Code or Android Studio, run flutter doctor.\n\n"
+        "## Platforms\n\nAndroid, iOS (needs Xcode on a Mac), web and desktop builds.\n"
+    )
+
+    def test_upload_json_builds_topics_and_retags(self):
+        url = reverse("qa:lecture-material", args=[DEMO_CODE])
+        self.assertEqual(self.anonymous().get(url).status_code, 404)
+        self.assertEqual(self.as_(self.student).post(url, {"text": self.MARKDOWN}, format="json").status_code, 403)
+        self.assertEqual(self.as_(self.lecturer).post(url, {"text": "short"}, format="json").status_code, 400)
+
+        response = self.as_(self.lecturer).post(url, {"title": "lecture-00.md", "text": self.MARKDOWN}, format="json")
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual((data["topics_created"], data["topics_updated"]), (0, 3))  # the seed already has these three titles
+        self.assertTrue(all(t["keywords"] for t in data["topics"]))
+        self.assertEqual(data["retag"]["topics"], 3)
+        self.assertTrue(LectureMaterial.objects.filter(lecture=self.lecture).exists())
+        self.assertTrue(self.anonymous().get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()["has_material"])
+
+        again = self.as_(self.lecturer).post(url, {"text": "Replaced notes, long enough to be accepted here.", "extract": False}, format="json")
+        self.assertEqual((again.status_code, again.json()["topics_created"]), (200, 0))
+        self.assertEqual(LectureMaterial.objects.filter(lecture=self.lecture).count(), 1)   # one-to-one
+        self.assertEqual(self.anonymous().get(url).json()["uploaded_by"]["username"], "lecturer")
+        self.assertEqual(self.as_(self.lecturer).delete(url).status_code, 204)
+        self.assertEqual(self.lecture.topics.count(), 3)                                   # topics stay
+
+    def test_upload_file_multipart(self):
+        upload = io.BytesIO(self.MARKDOWN.encode()); upload.name = "lecture.md"
+        response = self.as_(self.lecturer).post(reverse("qa:lecture-material", args=[DEMO_CODE]), {"file": upload}, format="multipart")
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["material"]["title"], "lecture.md")
+
+
+class AnswerApiTests(AuthenticatedMixin, APITestCase):
+    """Answer: Question 1 -> 1 Answer (CASCADE); written by the lecture owner or an admin."""
+
+    def setUp(self):
+        super().setUp()
+        self.answered = Question.objects.get(lecture=self.lecture, answer__isnull=False)  # seeded
+        self.open = Question.objects.filter(lecture=self.lecture, answer__isnull=True).first()
+
+    def test_seeded_answer_is_embedded(self):
+        data = self.anonymous().get(reverse("qa:question-detail", args=[self.answered.id])).json()
+        self.assertTrue(data["is_answered"])
+        self.assertEqual(data["answer"]["author"]["username"], "lecturer")
+        self.assertIsNone(self.anonymous().get(reverse("qa:question-detail", args=[self.open.id])).json()["answer"])
+
+    def test_roles_and_put_semantics(self):
+        url = reverse("qa:question-answer", args=[self.open.id])
+        self.assertEqual(self.anonymous().get(url).status_code, 404)
+        self.assertEqual(self.anonymous().put(url, {"text": "x"}, format="json").status_code, 401)
+        self.assertEqual(self.as_(self.student).put(url, {"text": "x"}, format="json").status_code, 403)
+        self.assertEqual(self.as_(self.lecturer).put(url, {"text": "  "}, format="json").status_code, 400)
+
+        created = self.as_(self.lecturer).put(url, {"text": "Yes - the basics are enough."}, format="json")
+        self.assertEqual((created.status_code, created.json()["author"]["username"]), (201, "lecturer"))
+        self.open.refresh_from_db()
+        self.assertTrue(self.open.is_answered)
+        replaced = self.as_(self.admin).put(url, {"text": "Admin edit"}, format="json")
+        self.assertEqual((replaced.status_code, replaced.json()["id"], replaced.json()["author"]["username"]), (200, created.json()["id"], "admin"))
+        self.assertEqual(Answer.objects.filter(question=self.open).count(), 1)
+
+        self.assertEqual(self.as_(self.student).delete(url).status_code, 403)
+        self.assertEqual(self.as_(self.lecturer).delete(url).status_code, 204)
+        self.open.refresh_from_db()
+        self.assertFalse(self.open.is_answered)
+        self.assertEqual(self.as_(self.lecturer).delete(url).status_code, 404)
+
+    def test_deleting_question_cascades_to_answer(self):
+        answer_id = self.answered.answer.id
+        self.as_(self.lecturer).delete(reverse("qa:question-detail", args=[self.answered.id]))
+        self.assertFalse(Answer.objects.filter(pk=answer_id).exists())
+
+
+class SummaryExportTests(AuthenticatedMixin, APITestCase):
+    def test_summary_counts_per_topic(self):
+        data = self.anonymous().get(reverse("qa:lecture-summary", args=[DEMO_CODE])).json()
+        self.assertEqual((data["questions"], data["with_written_answer"], data["tagged_manual"]), (3, 1, 3))
+        self.assertEqual([t["title"] for t in data["topics"]], ["Dart language", "Tooling and setup", "Platforms", "No topic"])
+        self.assertEqual(sum(t["questions"] for t in data["topics"]), 3)
+
+    def test_export_is_markdown_with_answers(self):
+        response = self.anonymous().get(reverse("qa:lecture-export", args=[DEMO_CODE]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
+        body = response.content.decode()
+        self.assertIn("# Flutter 1 · Lecture 00", body)
+        self.assertIn("## Platforms", body)
+        self.assertIn("*Answer (", body)
+
+
 class DocsTests(APITestCase):
     def test_schema_covers_every_route_and_declares_jwt(self):
         response = self.client.get(reverse("qa:schema"))
@@ -344,6 +559,10 @@ class DocsTests(APITestCase):
             "/api/auth/logout/:", "/api/auth/me/:", "/api/auth/me/password/:", "/api/users/:", "/api/users/{id}/:",
             "/api/lectures/:", "/api/lectures/{key}/:", "/api/lectures/{key}/toggle/:", "/api/lectures/{key}/questions/:",
             "/api/questions/:", "/api/questions/{id}/:", "/api/questions/{id}/upvote/:", "/api/questions/{id}/answered/:",
+            "/api/questions/{id}/answer/:", "/api/lectures/{key}/topics/:", "/api/lectures/{key}/material/:",
+            "/api/lectures/{key}/similar/:", "/api/lectures/{key}/suggest/:", "/api/lectures/{key}/retag/:",
+            "/api/lectures/{key}/summary/:", "/api/lectures/{key}/export/:",
+            "/api/topics/:", "/api/topics/{id}/:", "/api/topics/{id}/questions/:",
         ):
             self.assertIn(route, spec)
         self.assertIn("bearerFormat: JWT", spec)

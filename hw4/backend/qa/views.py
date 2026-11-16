@@ -37,6 +37,12 @@ def lecture_page(request, code: str):
     return render(request, "qa/lecture.html", {"lecture": lecture})
 
 
+def plan(request, code: str):
+    """Lecturer page: topic plan, lecture material upload, per-topic summary, export."""
+    lecture = get_object_or_404(Lecture, code=code.upper())
+    return render(request, "qa/plan.html", {"lecture": lecture})
+
+
 def screen(request, code: str):
     """Projector page: QR code to join plus the live question board."""
     lecture = get_object_or_404(Lecture, code=code.upper())

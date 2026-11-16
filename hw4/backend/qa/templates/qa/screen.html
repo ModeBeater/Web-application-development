@@ -26,6 +26,10 @@
         <div class="hint">This address works only on this computer. Start the tunnel (docker compose --profile tunnel up -d) or set PUBLIC_URL in .env to your LAN address.</div>
       {% endif %}
       <p class="small muted" style="margin:12px 0 0">Scan to join, sign in, ask and upvote.</p>
+      <div class="topics-panel hidden" id="topics-panel">
+        <h2 style="margin:0 0 10px">Questions by topic</h2>
+        <div class="bars" id="topic-bars"></div>
+      </div>
     </aside>
   </div>
 {% endblock %}
@@ -37,8 +41,22 @@
   const pill = document.getElementById("state-pill");
   const toggle = document.getElementById("toggle");
 
+  const bars = document.getElementById("topic-bars");
+  function renderBars(data) {
+    const panel = document.getElementById("topics-panel");
+    panel.classList.toggle("hidden", !data.topics.length);
+    const total = Math.max(1, data.questions.length);
+    const untagged = data.questions.filter((q) => !q.topic_id).length;
+    const rows = data.topics.map((t, i) => ({ title: t.title, n: t.question_count, cls: `t${i % 8}` }));
+    if (untagged) rows.push({ title: "No topic", n: untagged, cls: "t7" });
+    bars.replaceChildren(...rows.map((r) => RH.el("div", { class: `bar ${r.cls}` },
+      RH.el("span", {}, r.title), RH.el("strong", {}, r.n),
+      RH.el("div", { class: "track" }, RH.el("div", { class: "fill", style: `width:${Math.round(100 * r.n / total)}%` })))));
+  }
+
   const refresh = RH.startPolling(code, (data) => {
-    RH.renderQuestions(list, data.questions, { mode: "screen", onChange: refresh });
+    RH.renderQuestions(list, data.questions, { mode: "screen", onChange: refresh, topics: data.topics });
+    renderBars(data);
     pill.textContent = data.is_open ? "open" : "closed";
     pill.className = "pill " + (data.is_open ? "open" : "closed");
     document.getElementById("owner").textContent = `${data.owner.display_name} · ${data.question_count} question${data.question_count === 1 ? "" : "s"}`;

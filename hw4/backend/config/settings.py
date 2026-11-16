@@ -173,6 +173,14 @@ STORAGES = {
 # Django REST Framework
 # ---------------------------------------------------------------------------
 
+# --- Automatic topic tagging (qa/tagging.py) ---------------------------------
+# tfidf (default): char n-gram TF-IDF + keyword bonus; keywords: keyword rule only
+TAGGING_BACKEND = os.environ.get("TAGGING_BACKEND", "tfidf")
+# Minimum score for an automatic tag; below it the question stays untagged
+TAGGING_THRESHOLD = float(os.environ.get("TAGGING_THRESHOLD", "0.18"))
+# Minimum cosine similarity for "someone already asked this"
+SIMILAR_THRESHOLD = float(os.environ.get("SIMILAR_THRESHOLD", "0.35"))
+
 REST_FRAMEWORK = {
     # Every request may carry "Authorization: Bearer <access token>"; without it request.user is anonymous.
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework_simplejwt.authentication.JWTAuthentication"],
