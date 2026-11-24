@@ -43,6 +43,7 @@ from rest_framework.reverse import reverse
 from . import tagging
 from .export import lecture_markdown
 from .filters import LectureFilter, QuestionFilter, TopicFilter
+from .links import join_url, public_base_url, screen_url
 from .lookup import find_lecture, questions_for, topics_for, with_votes
 from .material import MAX_UPLOAD_BYTES, plan_from_text, read_upload
 from .models import Answer, Lecture, LectureMaterial, Question, Topic, Upvote
@@ -54,6 +55,7 @@ from .serializers import (
     HealthSerializer,
     LectureDetailSerializer,
     LectureSerializer,
+    JoinInfoSerializer,
     LectureSummarySerializer,
     MaterialSerializer,
     MaterialUploadResultSerializer,
@@ -414,6 +416,39 @@ class LectureViewSet(viewsets.ModelViewSet):
         }
         return Response(payload, status=status.HTTP_200_OK if existing else status.HTTP_201_CREATED)
 
+    # ----- join info for the projector page -------------------------------------------------------
+
+    @extend_schema(
+        summary="Join link and QR code",
+        description="What the projector page shows: the address students open (QR code as inline SVG), the join "
+        "code and where that address came from — `env` (PUBLIC_URL), `tunnel` (running cloudflared), "
+        "`frontend` (FRONTEND_URL) or `request` (the address this request came through). `local_only` warns "
+        "that the address only works on this computer (localhost).",
+        parameters=[KEY_PARAM],
+        responses=JoinInfoSerializer,
+        auth=[],
+    )
+    @action(detail=True, methods=["get"], filter_backends=[])
+    def join(self, request, key=None):
+        import segno
+
+        lecture = self.get_object()
+        source, base = public_base_url(request)
+        url = join_url(request, lecture)
+        # omitsize=True -> the SVG gets a viewBox instead of fixed width/height, so CSS can scale it
+        qr_svg = segno.make(url, error="m").svg_inline(scale=6, dark="#0f172a", light=None, omitsize=True)
+        host = base.split("://", 1)[-1].split("/")[0].split(":")[0]
+        return Response(
+            {
+                "code": lecture.code,
+                "join_url": url,
+                "screen_url": screen_url(request, lecture),
+                "source": source,
+                "local_only": host in ("localhost", "127.0.0.1"),
+                "qr_svg": qr_svg,
+            }
+        )
+
     # ----- summary and export -------------------------------------------------------------------
 
     @extend_schema(
@@ -694,7 +729,10 @@ def health(request):
             version = cursor.fetchone()[0].split(" on ")[0]
     except Exception as exc:  # noqa: BLE001 - any DB failure means unhealthy
         return Response({"status": "error", "database": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-    return Response({"status": "ok", "database": version})
+    return Response(
+        {"status": "ok", "app": settings.APP_NAME, "version": API_VERSION, "database": version,
+         "refresh_seconds": settings.REFRESH_SECONDS}
+    )
 
 
 @extend_schema(

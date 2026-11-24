@@ -32,7 +32,15 @@ class UserSerializer(serializers.ModelSerializer):
             "id", "username", "email", "first_name", "last_name", "display_name", "role",
             "is_active", "date_joined", "last_login", "stats",
         ]
-        read_only_fields = ["id", "username", "role", "is_active", "date_joined", "last_login"]
+        read_only_fields = ["id", "role", "is_active", "date_joined", "last_login"]
+        extra_kwargs = {"username": {"min_length": 3, "required": False}}
+
+    def validate_username(self, value: str) -> str:
+        """Usernames are unique (ModelSerializer adds the DB check); keep them short and plain."""
+        value = value.strip()
+        if " " in value:
+            raise serializers.ValidationError("Spaces are not allowed in a username.")
+        return value
 
     def get_stats(self, user: User) -> dict:
         upvotes_received = (
@@ -50,7 +58,7 @@ class UserAdminSerializer(UserSerializer):
     """Admins may also change the role and (de)activate accounts."""
 
     class Meta(UserSerializer.Meta):
-        read_only_fields = ["id", "username", "date_joined", "last_login"]
+        read_only_fields = ["id", "date_joined", "last_login"]
 
 
 class RegisterSerializer(serializers.ModelSerializer):

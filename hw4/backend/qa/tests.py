@@ -111,6 +111,16 @@ class AuthFlowTests(APITestCase):
         edited = self.client.patch(reverse("accounts:me"), {"first_name": "Yevgeniy", "role": "admin"}, format="json").json()
         self.assertEqual((edited["first_name"], edited["role"]), ("Yevgeniy", "student"))  # role is read-only here
 
+        # username can be changed, must stay unique and keeps the token valid (tokens carry the user id)
+        taken = self.client.patch(reverse("accounts:me"), {"username": "lecturer"}, format="json")
+        self.assertEqual(taken.status_code, 400)
+        self.assertIn("username", taken.json())
+        renamed = self.client.patch(reverse("accounts:me"), {"username": "yevgeniy_t"}, format="json").json()
+        self.assertEqual(renamed["username"], "yevgeniy_t")
+        self.assertEqual(self.client.get(reverse("accounts:me")).json()["username"], "yevgeniy_t")
+        self.assertEqual(self.client.patch(reverse("accounts:me"), {"username": "a b"}, format="json").status_code, 400)
+        self.client.patch(reverse("accounts:me"), {"username": me["username"]}, format="json")  # back, for login() below
+
         wrong = self.client.post(reverse("accounts:password"), {"current_password": "nope", "new_password": "Another-pass-9"}, format="json")
         self.assertEqual(wrong.status_code, 400)
         ok = self.client.post(reverse("accounts:password"), {"current_password": PASSWORD, "new_password": "Another-pass-9"}, format="json")
@@ -335,6 +345,15 @@ class QuestionApiTests(AuthenticatedMixin, APITestCase):
         url = reverse("qa:question-detail", args=[self.first.id])
         self.assertEqual(self.as_(self.lecturer).delete(url).status_code, 204)
         self.assertEqual(Upvote.objects.filter(question_id=self.first.id).count(), 0)
+
+    def test_upvotes_are_a_many_to_many_relation(self):
+        """Question.upvoters <-> User.upvoted_questions through the Upvote table."""
+        question = Question.objects.create(lecture=self.lecture, author=self.student, text="Is this a many-to-many?")
+        self.as_(self.student).post(reverse("qa:question-upvote", args=[question.id]))
+        self.as_(self.lecturer).post(reverse("qa:question-upvote", args=[question.id]))
+        self.assertEqual(set(question.upvoters.values_list("username", flat=True)), {self.student.username, self.lecturer.username})
+        self.assertIn(question.id, self.lecturer.upvoted_questions.values_list("id", flat=True))
+        self.assertEqual(Upvote.objects.filter(question=question).count(), 2)  # the through rows
 
 
 # ---------------------------------------------------------------------------
@@ -576,12 +595,15 @@ class SeedDemoTests(TestCase):
     def test_seed_creates_accounts_and_100_plus_questions_idempotently(self):
         out = StringIO()
         call_command("seed_demo", stdout=out)
-        self.assertIn("Seeded 8 lectures", out.getvalue())
+        self.assertIn("Seeded 10 lectures", out.getvalue())
         self.assertEqual(User.objects.filter(username__startswith="student", role="student").count(), 41)  # student + student01..40
         self.assertGreaterEqual(Question.objects.count(), 100)
         self.assertGreater(Upvote.objects.count(), 100)
         self.assertTrue(User.objects.get(username="student07").check_password(PASSWORD))
         self.assertTrue(Lecture.objects.filter(code="FLT101", owner__username="lecturer").exists())
+        # the assignment asks for at least 10 rows in every table
+        for model in (User, Lecture, LectureMaterial, Topic, Question, Upvote, Answer):
+            self.assertGreaterEqual(model.objects.count(), 10, model.__name__)
 
         before = (Question.objects.count(), User.objects.count())
         call_command("seed_demo", stdout=StringIO())
@@ -606,16 +628,16 @@ class TunnelDiscoveryTests(TestCase):
         return mock.patch("qa.tunnel.urllib.request.urlopen", return_value=io.BytesIO(payload))
 
     def test_join_url_uses_running_tunnel(self):
-        with self.settings(PUBLIC_URL=""), self.fake_metrics(b'{"hostname":"demo.trycloudflare.com"}'):
+        with self.settings(PUBLIC_URL="", FRONTEND_URL=""), self.fake_metrics(b'{"hostname":"demo.trycloudflare.com"}'):
             data = self.client.get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
-            screen = self.client.get(reverse("qa:screen", args=[DEMO_CODE]))
+            join = self.client.get(reverse("qa:lecture-join", args=[DEMO_CODE])).json()
         self.assertEqual(data["join_url"], f"https://demo.trycloudflare.com/l/{DEMO_CODE}/")
-        self.assertContains(screen, "via Cloudflare tunnel")
+        self.assertEqual((join["source"], join["local_only"]), ("tunnel", False))
 
     def test_public_url_beats_tunnel(self):
-        with self.settings(PUBLIC_URL="http://192.168.1.5:8000"), self.fake_metrics(b'{"hostname":"x.trycloudflare.com"}'):
+        with self.settings(PUBLIC_URL="http://192.168.1.5:3000"), self.fake_metrics(b'{"hostname":"x.trycloudflare.com"}'):
             data = self.client.get(reverse("qa:lecture-detail", args=[DEMO_CODE])).json()
-        self.assertTrue(data["join_url"].startswith("http://192.168.1.5:8000/"))
+        self.assertTrue(data["join_url"].startswith("http://192.168.1.5:3000/"))
 
     def test_lookup_is_cached(self):
         with self.fake_metrics(b'{"hostname":"demo.trycloudflare.com"}') as urlopen:
@@ -624,17 +646,24 @@ class TunnelDiscoveryTests(TestCase):
         self.assertEqual(urlopen.call_count, 1)
 
 
-class PageTests(TestCase):
-    def test_pages_render(self):
-        for name in ("qa:home", "qa:login", "qa:register", "qa:cabinet", "qa:users"):
-            self.assertEqual(self.client.get(reverse(name)).status_code, 200)
-        for name in ("qa:lecture", "qa:screen"):
-            self.assertEqual(self.client.get(reverse(name, args=[DEMO_CODE])).status_code, 200)
-        self.assertEqual(self.client.get(reverse("qa:lecture", args=["NOPE42"])).status_code, 404)
+class JoinInfoTests(TestCase):
+    """GET /api/lectures/{code}/join/ — what the projector page of the frontend shows."""
 
-    def test_screen_contains_scalable_qr_with_public_url(self):
-        with self.settings(PUBLIC_URL="http://192.168.1.5:8000"):
-            response = self.client.get(reverse("qa:screen", args=[DEMO_CODE]))
-        self.assertContains(response, "<svg")
-        self.assertContains(response, "viewBox=")
-        self.assertContains(response, f"http://192.168.1.5:8000/l/{DEMO_CODE}/")
+    def test_join_info_with_public_url(self):
+        with self.settings(PUBLIC_URL="http://192.168.1.5:3000"):
+            data = self.client.get(reverse("qa:lecture-join", args=[DEMO_CODE])).json()
+        self.assertEqual((data["code"], data["source"], data["local_only"]), (DEMO_CODE, "env", False))
+        self.assertEqual(data["join_url"], f"http://192.168.1.5:3000/l/{DEMO_CODE}/")
+        self.assertEqual(data["screen_url"], f"http://192.168.1.5:3000/l/{DEMO_CODE}/screen/")
+        self.assertIn("<svg", data["qr_svg"])
+        self.assertIn("viewBox=", data["qr_svg"])  # scalable: no fixed width/height
+
+    def test_join_info_falls_back_to_frontend_url_then_request(self):
+        with self.settings(PUBLIC_URL="", FRONTEND_URL="http://localhost:3000"):
+            data = self.client.get(reverse("qa:lecture-join", args=[DEMO_CODE])).json()
+        self.assertEqual((data["source"], data["local_only"]), ("frontend", True))
+        with self.settings(PUBLIC_URL="", FRONTEND_URL=""):
+            data = self.client.get(reverse("qa:lecture-join", args=[DEMO_CODE])).json()
+        self.assertEqual((data["source"], data["local_only"]), ("request", False))
+        self.assertTrue(data["join_url"].startswith("http://testserver/l/"))
+        self.assertEqual(self.client.get(reverse("qa:lecture-join", args=["NOPE42"])).status_code, 404)

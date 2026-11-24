@@ -1,3 +1,19 @@
+"""
+Data model of RaiseHand. Relations at a glance:
+
+    one-to-many   User     -> Lecture          (owner)            CASCADE
+                  Lecture  -> Topic                               CASCADE
+                  Lecture  -> Question                            CASCADE
+                  User     -> Question         (author)           CASCADE
+                  Topic    -> Question         (tag)              SET_NULL
+    one-to-one    Lecture  <- LectureMaterial  (uploaded text)    CASCADE
+                  Question <- Answer           (written answer)   CASCADE
+    many-to-many  Question <-> User            (upvoters)         through Upvote
+
+CASCADE where the child is meaningless without the parent, SET_NULL where the link is only a
+label (removing a topic must not delete the audience's questions).
+"""
+
 import secrets
 
 from django.conf import settings
@@ -97,6 +113,13 @@ class Question(models.Model):
     text = models.CharField(max_length=500)
     is_answered = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Many-to-many: a user upvotes many questions, a question is upvoted by many users.
+    # The link table is the explicit `Upvote` model (through=) because it carries its own
+    # column (created_at) and a uniqueness rule; `question.upvoters` / `user.upvoted_questions`
+    # are the two ends of the relation.
+    upvoters = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, through="Upvote", related_name="upvoted_questions", blank=True
+    )
 
     class Meta:
         ordering = ["created_at"]

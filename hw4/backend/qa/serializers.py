@@ -282,6 +282,15 @@ class TopicStatSerializer(serializers.Serializer):
     upvotes = serializers.IntegerField()
 
 
+class JoinInfoSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    join_url = serializers.URLField(help_text="Address students open; encoded in the QR code")
+    screen_url = serializers.URLField(help_text="Projector page of the frontend")
+    source = serializers.ChoiceField(choices=["env", "tunnel", "frontend", "request"], help_text="Where join_url came from")
+    local_only = serializers.BooleanField(help_text="True when the address only works on this computer")
+    qr_svg = serializers.CharField(help_text="Inline SVG of the QR code (viewBox, no fixed size)")
+
+
 class LectureSummarySerializer(serializers.Serializer):
     id = serializers.IntegerField()
     code = serializers.CharField()
@@ -322,7 +331,10 @@ class AnsweredResultSerializer(serializers.Serializer):
 
 class HealthSerializer(serializers.Serializer):
     status = serializers.CharField()
+    app = serializers.CharField()
+    version = serializers.CharField()
     database = serializers.CharField()
+    refresh_seconds = serializers.IntegerField(help_text="How often the frontend polls for new questions")
 
 
 class StatsSerializer(serializers.Serializer):

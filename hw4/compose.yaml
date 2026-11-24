@@ -1,7 +1,9 @@
-# Raise Hand (HW4 / endterm) — Django REST Framework + JWT auth backend, PostgreSQL, Compose.
+# Raise Hand (HW4 / endterm) — three services: React frontend (nginx), Django REST API, PostgreSQL.
 # Start everything with:  docker compose up --build
 # Configuration comes from .env (copy .env.example and change the secrets).
-
+#
+#   browser ──> frontend :3000 (nginx: React build + /api/* proxied to web) ──> web :8000 (gunicorn) ──> db :5432
+#
 # Project name: prefixes the containers, network and volume (raisehand-hw4_pgdata),
 # so this stack does not collide with the hw2-compose one on the same machine.
 name: raisehand-hw4
@@ -33,6 +35,8 @@ services:
       - backend
 
   web:
+    # Django + DRF: the REST API, Swagger UI (/docs/), health check. No HTML pages — those
+    # are the frontend service.
     build: ./backend
     image: raisehand-hw4-web
     restart: unless-stopped
@@ -43,11 +47,26 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
     ports:
-      # host:container — the host port is configurable, the container port is fixed
+      # host:container — the host port is configurable, the container port is fixed.
+      # Published so Postman / Swagger can talk to the API directly as well as through the frontend.
       - "${WEB_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy   # start only after pg_isready succeeds
+    networks:
+      - backend
+
+  frontend:
+    # React (Vite) single-page app, compiled in the image's build stage and served by nginx.
+    # nginx also proxies /api/, /docs/, /health/ to the web service, so the browser talks to
+    # one origin only (no CORS) and never needs the backend's address.
+    build: ./frontend
+    image: raisehand-hw4-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - web
     networks:
       - backend
 
@@ -59,12 +78,12 @@ services:
     image: cloudflare/cloudflared:2026.10.0
     profiles: ["tunnel"]
     restart: unless-stopped
-    # cloudflared reaches the backend by its service name on the shared network.
-    # --metrics exposes GET /quicktunnel inside the network; the backend reads the
-    # public hostname from it, so the QR code switches to the tunnel automatically.
-    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://web:8000
+    # cloudflared exposes the frontend (which proxies the API) by its service name on the
+    # shared network. --metrics exposes GET /quicktunnel inside the network; the backend reads
+    # the public hostname from it, so the QR code switches to the tunnel automatically.
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://frontend:80
     depends_on:
-      - web
+      - frontend
     networks:
       - backend
 

@@ -121,7 +121,7 @@ def logout(request):
 
 
 @extend_schema(methods=["GET"], tags=["auth"], summary="My profile", description="The signed-in user with activity counters.", responses=UserSerializer)
-@extend_schema(methods=["PATCH"], tags=["auth"], summary="Edit my profile", description="Change first/last name or email.", request=UserSerializer, responses=UserSerializer)
+@extend_schema(methods=["PATCH"], tags=["auth"], summary="Edit my profile", description="Change username, first/last name or email. The username must stay unique.", request=UserSerializer, responses=UserSerializer)
 @api_view(["GET", "PATCH"])
 @permission_classes([IsAuthenticated])
 def me(request):

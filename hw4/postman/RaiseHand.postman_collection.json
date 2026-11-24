@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "fb4fc656-1df1-4465-adde-25be13098267",
+    "_postman_id": "807618e2-8fd0-402f-97d5-0188c4afb294",
     "name": "Raise Hand API (HW4 · JWT, roles, topics & tagging)",
     "description": "Live Q&A for lectures — Django REST Framework + SimpleJWT + PostgreSQL in Docker Compose.\n\nRun the whole collection with the Runner (or newman): folder 1 registers a student and a lecturer and stores their tokens in collection variables; the lecturer token is the collection's default Bearer token, individual requests switch to the student or admin token to demonstrate 401/403; folder 3b walks through the final-project features (topics, lecture material, automatic tagging, answers, summary, export); folder 6 signs in as the demo admin and deletes the throw-away accounts.\n\nVariables: baseUrl, demoPassword (DEMO_PASSWORD from .env, used only for the admin), the rest are filled automatically.\n\nDocs: {{baseUrl}}/docs/ (Swagger UI with an Authorize button), docs/API.md in the repository.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -594,6 +594,163 @@
                   "// Assertions run after the response arrives (see the Test Results tab).",
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
                   "pm.test(\"Name changed, role is read-only here\", () => { const b = pm.response.json(); pm.expect(b.first_name).to.eql(\"Renamed\"); pm.expect(b.role).to.eql(\"lecturer\"); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change my username (PATCH /me)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me",
+                ""
+              ]
+            },
+            "description": "The username can be changed; it must stay unique. The access token keeps working because it identifies the user by id.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{lecturer_username}}_renamed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Username changed\", () => pm.expect(pm.response.json().username).to.eql(pm.collectionVariables.get(\"lecturer_username\") + \"_renamed\"));",
+                  "pm.test(\"Old token still works: it carries the user id, not the name\", () => pm.expect(pm.response.code).to.eql(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Username already taken → 400",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{student_username}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"Field error on username\", () => pm.expect(pm.response.json().username[0]).to.include(\"already exists\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change the username back",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me",
+                ""
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{lecturer_username}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Restored\", () => pm.expect(pm.response.json().username).to.eql(pm.collectionVariables.get(\"lecturer_username\")));"
                 ]
               }
             }
@@ -3327,6 +3484,49 @@
           ]
         },
         {
+          "name": "Join info + QR code for the projector page",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lectures/{{lecture_id}}/join/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lectures",
+                "{{lecture_id}}",
+                "join",
+                ""
+              ]
+            },
+            "description": "What the React projector page shows: the address students open (encoded in the QR code), where it came from, and the QR code as inline SVG.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Assertions run after the response arrives (see the Test Results tab).",
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"join_url points at the frontend page, QR is an SVG\", () => { const b = pm.response.json(); pm.expect(b.code).to.eql(pm.collectionVariables.get(\"lecture_code\")); pm.expect(b.join_url).to.include(\"/l/\" + b.code + \"/\"); pm.expect(b.qr_svg).to.include(\"<svg\"); pm.expect([\"env\", \"tunnel\", \"frontend\", \"request\"]).to.include(b.source); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Lecture summary (per topic)",
           "request": {
             "method": "GET",
@@ -4591,7 +4791,7 @@
                 "exec": [
                   "// Assertions run after the response arrives (see the Test Results tab).",
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Declares JWT bearer auth and 30 paths\", () => { const s = pm.response.json(); pm.expect(s.components.securitySchemes.jwtAuth.bearerFormat).to.eql(\"JWT\"); pm.expect(Object.keys(s.paths)).to.have.lengthOf(30); });"
+                  "pm.test(\"Declares JWT bearer auth and 31 paths\", () => { const s = pm.response.json(); pm.expect(s.components.securitySchemes.jwtAuth.bearerFormat).to.eql(\"JWT\"); pm.expect(Object.keys(s.paths)).to.have.lengthOf(31); });"
                 ]
               }
             }

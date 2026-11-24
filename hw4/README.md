@@ -1,10 +1,10 @@
 # Raise Hand — live questions for lectures
 
-Web Application Development (KBTU, Fall 2026) · **Homework 4 / Endterm · final project: Complete Containerized Web Application**.
+Web Application Development (KBTU, Fall 2026) · **Homework 4 / Endterm · Fullstack Web Application with Authentication**.
 
 Students scan a QR code on the projector, ask questions from their phones and upvote the ones they also have. The most wanted questions float to the top of the screen; the lecturer marks them answered. I teach Flutter at KBTU, so this is a tool for my own lectures.
 
-This is the complete application: the HW3 REST API (Django REST Framework) plus **JWT authentication** (access + refresh tokens with rotation and blacklist), **three roles** (student / lecturer / admin) with permissions on every write, a **personal cabinet**, **user management**, and a **client-side frontend** that talks to the API with the tokens the browser holds — all running from `docker compose up`.
+This is the complete application: the HW3 REST API (Django REST Framework) plus **JWT authentication** (access + refresh tokens with rotation and blacklist), **three roles** (student / lecturer / admin) with permissions on every write, a **React frontend** (Vite + React Router) with protected routes, a **profile page** (username, name, email, password), **user management** — three services (`frontend`, `web`, `db`) running from `docker compose up`.
 
 The final version adds what makes the tool useful after the lecture, not only during it:
 
@@ -15,15 +15,17 @@ The final version adds what makes the tool useful after the lecture, not only du
 * **Summary and export** — questions per topic for the lecturer, Markdown export of the whole lecture (topics → questions → answers) to send to the group.
 
 ```text
- browser / phone                    web (Django 5.2 + DRF + SimpleJWT + gunicorn)      db (PostgreSQL 17)
- ──────────────────  -p 8000:8000   ───────────────────────────────────────────  db:5432  ──────────────
- pages  /, /login/, /me/, /l/… ──▶  templates + static/qa/app.js (JWT client)            accounts_user
- REST   /api/auth/*  ────────────▶  accounts/api.py   register · login · refresh · me   ─▶ qa_lecture
-        /api/lectures|questions ─▶  qa/api.py         viewsets + permissions.py            qa_question
-        /api/users/  ────────────▶  accounts/api.py   admin only                            qa_upvote
- docs   /docs/ (Swagger)  ───────▶  drf-spectacular                                         token_blacklist_*
-                                                                                             volume: pgdata
+ browser / phone          frontend (nginx :3000)                 web (Django 5.2 + DRF + SimpleJWT, gunicorn :8000)   db (PostgreSQL 17)
+ ───────────────          ─────────────────────────────          ──────────────────────────────────────────────────    ────────────────
+ /, /login/, /me/, /l/… ─▶ React build (SPA fallback)                                                                    accounts_user
+ /api/auth/*  ───────────▶ proxy ───────────────────────────────▶ accounts/api.py  register · login · refresh · me  ──▶  qa_lecture
+ /api/lectures|topics|… ─▶ proxy ───────────────────────────────▶ qa/api.py        viewsets + permissions.py             qa_topic
+ /api/users/  ───────────▶ proxy ───────────────────────────────▶ accounts/api.py  admin only                             qa_question
+ /docs/, /health/ ───────▶ proxy ───────────────────────────────▶ drf-spectacular, health                                qa_upvote · qa_answer
+                                                                  (also published directly on :8000 for Postman)          token_blacklist_*
 ```
+
+The frontend is a single-page app: React Router renders the pages in the browser and every piece of data comes from the REST API with the JWT the browser holds. nginx serves the build and proxies `/api/…` to the backend over the Compose network, so the app talks to **one origin** (no CORS in production); `django-cors-headers` is configured for the Vite dev server as well.
 
 ## Quick start
 
@@ -34,7 +36,7 @@ cp .env.example .env          # then change POSTGRES_PASSWORD and DJANGO_SECRET_
 docker compose up --build
 ```
 
-Open <http://localhost:8000> and sign in with a demo account (password `Demo12345!`, set by `DEMO_PASSWORD` in `.env`):
+Three containers start: `frontend` (React, <http://localhost:3000>), `web` (API + Swagger, <http://localhost:8000>), `db`. Open **<http://localhost:3000>** and sign in with a demo account (password `Demo12345!`, set by `DEMO_PASSWORD` in `.env`):
 
 | Account | Role | Try |
 | --- | --- | --- |
@@ -42,17 +44,18 @@ Open <http://localhost:8000> and sign in with a demo account (password `Demo1234
 | `lecturer` | lecturer | **Personal cabinet** → My lectures: start a lecture, open the projector **Screen**, close it, mark questions answered |
 | `student` (also `aigerim`, `daniyar`, `student01…student40`) | student | **Join** a lecture from a phone: ask, upvote, edit own questions |
 
-| What | URL |
-| --- | --- |
-| Lectures (search, filters, start a lecture) | <http://localhost:8000/> |
-| Sign in / Create account | <http://localhost:8000/login/> · <http://localhost:8000/register/> |
-| Personal cabinet (profile, password, my lectures, my questions, tokens) | <http://localhost:8000/me/> |
-| Users (admin) | <http://localhost:8000/users/> |
-| Audience page / projector screen of the demo lecture | <http://localhost:8000/l/KBTU26/> · <http://localhost:8000/l/KBTU26/screen/> |
-| **API docs (Swagger UI with Authorize)** | <http://localhost:8000/docs/> |
-| OpenAPI schema · API root · health | <http://localhost:8000/api/schema/> · <http://localhost:8000/api/> · <http://localhost:8000/health/> |
+| What | URL | Access |
+| --- | --- | --- |
+| Lectures (search, filters, start a lecture) | <http://localhost:3000/> | public |
+| Sign in / Create account | <http://localhost:3000/login/> · <http://localhost:3000/register/> | public |
+| **Profile** — personal cabinet: username, name, email, password, my lectures, my questions, tokens | <http://localhost:3000/me/> | **protected** |
+| **Topic plan** of a lecture — topics CRUD, material upload, re-tag, summary | <http://localhost:3000/l/FLT107/plan/> | **protected** (changes: owner / admin) |
+| Users — roles, activation, deletion | <http://localhost:3000/users/> | **protected, admin** |
+| Audience page / projector screen of a lecture | <http://localhost:3000/l/FLT107/> · <http://localhost:3000/l/FLT107/screen/> | public (asking and voting need sign-in) |
+| **API docs (Swagger UI with Authorize)** | <http://localhost:8000/docs/> (also <http://localhost:3000/docs/>) | public |
+| OpenAPI schema · API root · health | <http://localhost:8000/api/schema/> · <http://localhost:8000/api/> · <http://localhost:8000/health/> | public |
 
-With `SEED_DEMO=1` (default) the first start also creates 40 student accounts, 8 lectures of a Flutter course, 104 questions and ~330 upvotes, so the lists have 100+ records right away.
+With `SEED_DEMO=1` (default) the first start also creates 40 student accounts and 10 lectures of a Flutter course with lecture material, 30 topics, 126 tagged questions, 14 written answers and ~360 upvotes — **every table has well over 10 rows**.
 
 ## Authentication and authorization
 
@@ -71,15 +74,32 @@ With `SEED_DEMO=1` (default) the first start also creates 40 student accounts, 8
 
 Missing token → `401`, wrong role or not the owner → `403 {"detail": "Only the lecture owner or an admin can do this."}`. Every lecture/question in a response carries `can_manage` / `can_edit` / `can_answer` computed for the caller, so the frontend shows only the controls the user may use.
 
-## Frontend
+## Frontend (`frontend/`, React 19 + Vite + React Router 7)
 
-Server-rendered shells (`backend/qa/templates/qa/*.html`) with a small client in `backend/qa/static/qa/app.js`:
+A single-page application compiled by Vite and served by nginx (`frontend/Dockerfile`: a Node build stage, then an `nginx:alpine` image with only the static files). No TypeScript, no UI framework — plain React with the same stylesheet the earlier version used, so the code stays readable at a defense.
 
-- stores the token pair and the user profile in `localStorage`, adds `Authorization: Bearer` to every API call, and on a `401` silently refreshes the pair and retries once (then signs the user out and redirects to `/login/?next=…`);
-- renders DRF errors: `{"detail": …}` as a toast, `{"field": [...]}` under the matching inputs;
-- pages: lectures list with search / filters / pagination and "Start a lecture" (lecturers), login, register, personal cabinet (profile, password, my lectures, my questions, session with the access-token expiry and a "refresh now" button), users admin table, audience page (ask with live "already asked?" hints and the predicted topic, topic chips and a topic filter, upvote, edit own), projector screen (QR code, live board with topic chips and a questions-by-topic panel, close / mark answered for the owner), **topic plan page** `/l/{code}/plan/` (topics CRUD, material upload with drag-and-drop, re-tag, per-topic summary, Markdown export);
-- lecturer tools on every question: mark answered, write / edit / remove the written answer, change the topic;
-- the board polls `GET /api/lectures/{code}/` every `REFRESH_SECONDS`; light / dark theme, responsive down to phone width.
+```text
+frontend/src
+├── main.jsx, App.jsx            # <BrowserRouter> → routes; public routes vs. routes wrapped in <RequireAuth>
+├── api/client.js                # fetch wrapper: Bearer header, 401 → refresh → retry once, DRF error parsing, FormData uploads
+├── auth/AuthContext.jsx         # <AuthProvider> + useAuth(): the signed-in user for the whole tree (React Context)
+├── auth/RequireAuth.jsx         # route guard: signed in → <Outlet />, otherwise <Navigate to="/login/?next=…" />; optional roles
+├── components/Layout.jsx        # header with navigation and the user menu, footer
+├── components/Questions.jsx     # question cards: vote, topic chip, answer, lecturer and author tools, topic filter bar
+├── components/Toasts.jsx        # notifications
+├── hooks.js                     # useLecturePolling (GET /api/lectures/{code}/ every 3 s), useDebounced, useTitle
+└── pages/                       # Home, Login, Register, Profile (/me/), Users, Lecture (/l/:code/), Plan (/l/:code/plan/), Screen
+```
+
+**Routing and route protection** (`App.jsx`, `auth/RequireAuth.jsx`). Public routes: `/`, `/login/`, `/register/`, `/l/:code/`, `/l/:code/screen/`. Protected routes are nested under a `<Route element={<RequireAuth />}>`: `/me/` (Profile) and `/l/:code/plan/` (topic plan — the REST feature for signed-in users: topics CRUD, material upload, re-tagging, summary); `/users/` is under `<RequireAuth roles={["admin"]} />`. `RequireAuth` reads the session from `useAuth()`: signed in → it renders the child route through `<Outlet />`; signed out → `<Navigate to="/login/?next=/me/" replace />`, and the login page sends the user back to `next` afterwards; wrong role → an explanatory message instead of the page. This is UI-level protection — the API checks every request itself; the frontend only avoids showing pages that would produce 401/403.
+
+**JWT handling** (`api/client.js`, `auth/AuthContext.jsx`). `POST /api/auth/login/` returns `{access, refresh, user}`; the client stores all three in `localStorage` and `AuthProvider` mirrors them into React state, so the header, the menus and the guards re-render on sign-in and sign-out. Every call goes through `api(path, {method, body, auth})`, which adds `Authorization: Bearer <access>`; on a `401` it posts the refresh token to `/api/auth/refresh/`, stores the **new pair** (rotation) and retries the request once; if the refresh is rejected too, the session is cleared and the guards redirect to `/login/`. The Session tab of the profile decodes the access token's payload (`exp`, `user_id`, `role`, `username`) and has a "refresh now" button to show the rotation.
+
+**Errors and loading states.** DRF errors are parsed in one place: `{"detail": …}` becomes a toast (401/403/404/409), `{"field": [...]}` is shown under the matching input (register, profile, password forms); network failures show "Network error". Lists render skeleton tiles / "Loading…" while a request is in flight, submit buttons are disabled while posting, empty states explain what to do next; a 404 lecture code and unknown routes have their own pages.
+
+**Pages.** Lectures list with search, filters (open / closed / mine) and "load more" pagination, plus "Start a lecture" for lecturers; login and register; **Profile** (`/me/`): current user with activity counters, tabs *My lectures* (create, open / close, delete, links to screen / plan), *My questions*, *Profile* (**change username**, first / last name, email — `PATCH /api/auth/me/`), *Security* (**change password** — `POST /api/auth/me/password/`, returns fresh tokens), *Session* (token claims, refresh, sign out); **Users** (admin): table with search and role filter, change role, activate / deactivate, delete; **Lecture** (`/l/:code/`): live board polled every 3 s, ask form with hints from the tagging model while typing ("already asked?" with upvote buttons and the topic the model would pick), manual topic choice, topic filter chips, upvote, edit / delete own questions, lecturer tools on every card (mark answered, write / edit / remove the written answer, change the topic); **Plan** (`/l/:code/plan/`): topics CRUD, material upload (drag-and-drop file or pasted text; headings become topics, questions are re-tagged), re-tag button, per-topic summary, Markdown export; **Screen**: QR code (inline SVG from `GET /api/lectures/{code}/join/`), join code and address, big read-only board, questions-by-topic bars, open / close for the owner. Light / dark theme, responsive down to phone width.
+
+**Development without Docker.** `cd frontend && npm install && npm run dev` starts Vite on <http://localhost:5173> and proxies `/api`, `/docs`, `/health` to `http://127.0.0.1:8000` (`vite.config.js`); set `VITE_API_URL=http://localhost:8000` instead to call the API across origins, which exercises the CORS configuration (`CORS_ALLOWED_ORIGINS`).
 
 ## REST API
 
@@ -91,7 +111,7 @@ Reference with examples and the curl walk-through: **[`docs/API.md`](docs/API.md
 | `POST` | `/api/auth/login/` | `{username, password}` → `{access, refresh, user}` | all |
 | `POST` | `/api/auth/refresh/` | `{refresh}` → new `{access, refresh}` (old refresh revoked) | all |
 | `POST` | `/api/auth/logout/` | Revoke a refresh token → 205 | signed in |
-| `GET` / `PATCH` | `/api/auth/me/` | My profile with stats / edit name, email | signed in |
+| `GET` / `PATCH` | `/api/auth/me/` | My profile with stats / edit **username**, name, email | signed in |
 | `POST` | `/api/auth/me/password/` | Change password → fresh tokens | signed in |
 | `GET` | `/api/users/` · `/api/users/{id}/` | List / get users (`?role=`, `?is_active=`, `?search=`) | admin |
 | `PATCH` / `DELETE` | `/api/users/{id}/` | Change role / active flag · delete | admin |
@@ -106,6 +126,7 @@ Reference with examples and the curl walk-through: **[`docs/API.md`](docs/API.md
 | `GET` | `/api/lectures/{key}/suggest/?text=` | Preview the automatic tag with a score per topic | all |
 | `GET` | `/api/lectures/{key}/similar/?text=` | Similar existing questions ("already asked?") | all |
 | `POST` | `/api/lectures/{key}/retag/` | Run the model again over the lecture (`?include_manual=true`) | owner, admin |
+| `GET` | `/api/lectures/{key}/join/` | Join address + QR code (inline SVG) for the projector page, where the address came from | all |
 | `GET` | `/api/lectures/{key}/summary/` | Totals and questions / answers / votes per topic | all |
 | `GET` | `/api/lectures/{key}/export/` | Markdown export (topics → questions → answers) | all |
 | `GET` | `/api/topics/` | All topics — `?lecture=`, `?search=`, `?ordering=` | all |
@@ -122,11 +143,11 @@ Lists are paginated (`count / next / previous / results`); errors follow DRF (`{
 
 ## Postman collection
 
-[`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — **89 requests, 161 assertions** — plus [`postman/local.postman_environment.json`](postman/local.postman_environment.json) (`baseUrl`, `demoPassword`). Import both, select the environment and run the collection with the Runner: folder **1** registers a throw-away student and lecturer and stores their tokens in collection variables (the collection's default auth is `Bearer {{access_token}}`), shows login, the JWT claims, profile edit, refresh **rotation** and the rejected reuse of the old refresh token; **2–4** run the lecture and question CRUD as the lecturer and the student, including the `401`/`403`/`409` cases; **3b** walks through the final-project features — topics, material upload, the tagging model (auto / manual / untagged), similar questions, answers, summary, export; **5** logs out and proves the refresh token is revoked; **6** signs in as the admin, manages users and deletes the throw-away accounts; **7** shows the error formats and checks the schema. The run is repeatable.
+[`postman/RaiseHand.postman_collection.json`](postman/RaiseHand.postman_collection.json) — **93 requests, 170 assertions** — plus [`postman/local.postman_environment.json`](postman/local.postman_environment.json) (`baseUrl`, `demoPassword`). Import both, select the environment and run the collection with the Runner: folder **1** registers a throw-away student and lecturer and stores their tokens in collection variables (the collection's default auth is `Bearer {{access_token}}`), shows login, the JWT claims, profile edit, refresh **rotation** and the rejected reuse of the old refresh token; **2–4** run the lecture and question CRUD as the lecturer and the student, including the `401`/`403`/`409` cases; **3b** walks through the final-project features — topics, material upload, the tagging model (auto / manual / untagged), similar questions, answers, summary, export; **5** logs out and proves the refresh token is revoked; **6** signs in as the admin, manages users and deletes the throw-away accounts; **7** shows the error formats and checks the schema. The run is repeatable.
 
 ```bash
 npx newman run postman/RaiseHand.postman_collection.json -e postman/local.postman_environment.json
-# → 89 requests, 161 assertions, 0 failed
+# → 93 requests, 170 assertions, 0 failed
 ```
 
 ## Data models
@@ -138,14 +159,19 @@ accounts.User (AbstractUser + role: student | lecturer | admin)
    │      ├── Topic           (lecture FK CASCADE, title, keywords, description, order)  unique (lecture, title)   1 → N
    │      └── Question        (lecture FK CASCADE, author FK → User, topic FK SET_NULL, tag_source, tag_score,
    │             │             text, is_answered, created_at)                                                      1 → N
-   │             ├── Upvote   (question FK CASCADE, user FK → User)   unique (question, user)                       1 → N
-   │             └── Answer   (question OneToOne CASCADE, author FK → User SET_NULL, text, created_at, updated_at)  1 → 1
+   │             ├── Answer   (question OneToOne CASCADE, author FK → User SET_NULL, text, created_at, updated_at)  1 → 1
+   │             └── upvoters = ManyToManyField(User, through="Upvote")                                             N ↔ N
+   │                    Upvote (question FK CASCADE, user FK CASCADE, created_at)   unique (question, user)
    └── token_blacklist.OutstandingToken / BlacklistedToken  (refresh tokens that can be revoked)
 ```
 
-Two one-to-one relations (`LectureMaterial`, `Answer`) and four one-to-many ones, all cascading except `Question.topic`: a topic is a label on the lecture plan, so deleting a topic untags its questions instead of deleting them.
+* **one-to-one**: `LectureMaterial.lecture`, `Answer.question` (`OneToOneField` = a foreign key with a unique index; `question.answer`, `lecture.material`);
+* **one-to-many**: `Lecture.owner`, `Topic.lecture`, `Question.lecture`, `Question.author`, `Question.topic`;
+* **many-to-many**: `Question.upvoters` ↔ `User.upvoted_questions` through the explicit `Upvote` table (it carries `created_at` and the uniqueness rule — the `through=` form of `ManyToManyField`).
 
-Migrations: `accounts/0001` (user), `qa/0001` (schema), `qa/0002` (demo accounts + demo lecture), `qa/0003` (topics, material, answers, tag fields), `qa/0004` (demo topics and an answer for `KBTU26`), SimpleJWT's `token_blacklist`. Applied by `entrypoint.sh` on every start.
+Everything cascades except `Question.topic` (`SET_NULL`): a topic is a label on the lecture plan, so deleting a topic untags its questions instead of deleting them. Deleting a lecture removes its material, topics, questions, upvotes and answers in one transaction.
+
+Migrations: `accounts/0001` (user), `qa/0001` (schema), `qa/0002` (demo accounts + demo lecture), `qa/0003` (topics, material, answers, tag fields), `qa/0004` (demo topics and an answer for `KBTU26`), `qa/0005` (`upvoters` many-to-many), SimpleJWT's `token_blacklist`. Applied by `entrypoint.sh` on every start.
 
 ## Automatic tagging (`backend/qa/tagging.py`, `backend/qa/material.py`)
 
@@ -155,17 +181,18 @@ Migrations: `accounts/0001` (user), `qa/0001` (schema), `qa/0002` (demo accounts
 4. The best topic is used when its score reaches `TAGGING_THRESHOLD` (0.18 by default); otherwise the question stays untagged — a wrong tag is worse than none. The score is stored as `tag_score`, the origin as `tag_source` (`auto` | `manual` | empty).
 5. The same vectorizer over the lecture's existing questions powers `/similar/` ("already asked?", `SIMILAR_THRESHOLD` 0.35).
 
-Uploading lecture text (`POST /api/lectures/{key}/material/`) splits it into sections by headings (Markdown `#`, numbered `1.`, ALL CAPS lines, PDF slide titles; paragraph groups as a fallback), extracts the distinguishing words of each section as keywords (word-level TF-IDF across sections) and creates or updates the topics; questions are re-tagged afterwards. `TAGGING_BACKEND=keywords` switches the n-gram part off for comparison. On the demo data the model agrees with a hand-written keyword rule on 48 of 52 questions and tags 103 of 104.
+Uploading lecture text (`POST /api/lectures/{key}/material/`) splits it into sections by headings (Markdown `#`, numbered `1.`, ALL CAPS lines, PDF slide titles; paragraph groups as a fallback), extracts the distinguishing words of each section as keywords (word-level TF-IDF across sections) and creates or updates the topics; questions are re-tagged afterwards. `TAGGING_BACKEND=keywords` switches the n-gram part off for comparison. On the demo data the model tags 125 of 126 questions and agrees with a hand-written keyword rule on 48 of the 52 it was checked against.
 
 ## Services (compose.yaml)
 
 | Service | Image | Role | Ports | Depends on |
 | --- | --- | --- | --- | --- |
-| `web` | built from `backend/Dockerfile` | Django + DRF served by gunicorn; migrates, collects static files, seeds | `${WEB_PORT}:8000` | `db` must be **healthy** (`pg_isready`) |
+| `frontend` | built from `frontend/Dockerfile` (Node build stage → `nginx:1.29-alpine`) | React single-page app; nginx serves the build with an SPA fallback and proxies `/api/`, `/docs/`, `/health/` to `web` | `${FRONTEND_PORT}:80` | `web` |
+| `web` | built from `backend/Dockerfile` | Django + DRF (API only) served by gunicorn; migrates, collects the static files of Swagger / the browsable API, seeds | `${WEB_PORT}:8000` | `db` must be **healthy** (`pg_isready`) |
 | `db` | `postgres:17-alpine` | PostgreSQL with the named volume `pgdata` | `127.0.0.1:${DB_PORT_HOST}:5432` (host access only, optional) | — |
-| `tunnel` (profile `tunnel`, optional) | `cloudflare/cloudflared:2026.10.0` | Public HTTPS address for the classroom demo (the QR code follows it automatically) | — | `web` |
+| `tunnel` (profile `tunnel`, optional) | `cloudflare/cloudflared:2026.10.0` | Public HTTPS address of the frontend for the classroom demo (the QR code follows it automatically) | — | `frontend` |
 
-Both services share the `backend` network, so the app reaches the database as `db:5432`. The project is named `raisehand-hw4`, so its containers and volume (`raisehand-hw4_pgdata`) do not collide with the earlier homeworks.
+All services share the `backend` network: nginx reaches the API as `web:8000`, the API reaches the database as `db:5432`; the browser only ever sees `localhost:3000` (and `:8000` for Swagger / Postman). The project is named `raisehand-hw4`, so its containers and volume (`raisehand-hw4_pgdata`) do not collide with the earlier homeworks.
 
 ## Configuration (`.env`)
 
@@ -180,15 +207,18 @@ Both services share the `backend` network, so the app reaches the database as `d
 | `TAGGING_BACKEND`, `TAGGING_THRESHOLD`, `SIMILAR_THRESHOLD` | web | Tagging model: `tfidf` (default) or `keywords`; minimum score for an automatic tag (0.18); minimum similarity for "already asked" hints (0.35) |
 | `DEMO_PASSWORD` | web | Password of the demo accounts created by the seed (default `Demo12345!`) |
 | `SEED_DEMO` | web | `1` loads the demo data set on start (idempotent), `0` keeps only the demo accounts + one lecture |
-| `APP_NAME`, `PUBLIC_URL`, `REFRESH_SECONDS` | web | Header name; address for the QR code (empty = tunnel or request address); polling interval |
-| `WEB_PORT`, `DB_PORT_HOST` | compose | Host ports (default 8000 / 5433) |
+| `APP_NAME`, `PUBLIC_URL`, `FRONTEND_URL`, `REFRESH_SECONDS` | web | Service name; address for the QR code (empty = tunnel, then `FRONTEND_URL`, then the request address); where the frontend is for the links the API hands out; polling interval reported by `/health/` |
+| `CORS_ALLOWED_ORIGINS` | web | Origins allowed to call the API across origins (`django-cors-headers`); the Vite dev server and `localhost:3000` by default |
+| `FRONTEND_PORT`, `WEB_PORT`, `DB_PORT_HOST` | compose | Host ports (default 3000 / 8000 / 5433) |
 
 ## Commands
 
 ```bash
-docker compose ps                                   # state and health of both services
+docker compose ps                                   # state and health of the three services
 docker compose logs -f web                          # migrations, seed, then gunicorn access log
-docker compose run --rm web python manage.py test   # 55 tests (auth, permissions, CRUD, topics, tagging, material, answers, docs, seed, pages)
+docker compose logs -f frontend                     # nginx access log (page loads and proxied API calls)
+docker compose run --rm web python manage.py test   # 56 tests (auth, permissions, CRUD, relations, topics, tagging, material, answers, docs, seed)
+docker compose up -d --build frontend               # rebuild only the React app after a change in frontend/
 docker compose exec web python manage.py seed_demo --clear    # regenerate the demo lectures and questions
 docker compose exec db psql -U raisehand -d raisehand -c 'SELECT username, role FROM accounts_user LIMIT 10;'
 docker compose exec db psql -U raisehand -d raisehand -c 'SELECT count(*) FROM token_blacklist_blacklistedtoken;'
@@ -204,19 +234,18 @@ Done in this version: topic plan, automatic tagging, "already asked?" hints, wri
 
 | Requirement | Where |
 | --- | --- |
-| Extend the REST API into a complete web application | HW3 API + `accounts` app + frontend pages |
-| Implement authentication and authorization | SimpleJWT (`accounts/api.py`, `SIMPLE_JWT` in settings): register, login, refresh with rotation + blacklist, logout; roles on `accounts.User` |
-| Configure permissions for protected API operations | `qa/permissions.py` (`LecturePermission`, `QuestionPermission`), `accounts/permissions.py` (`IsAdmin`); `IsAuthenticatedOrReadOnly` default |
-| Filtering, search, pagination | django-filter (`qa/filters.py`: `is_open`, `owner=me`, `lecture`, `is_answered`, `author=me`), `SearchFilter`, `OrderingFilter`, `LimitOffsetPagination` |
-| Integrate the REST API with a client-side frontend | `backend/qa/static/qa/app.js` + templates: all pages read and write through `/api/…` with the Bearer token |
-| Handle API requests and errors on the frontend | automatic token refresh on 401, redirect to login, field errors under inputs, toasts for `detail` errors, empty / loading states |
-| Backend and database as separate services | `web` and `db` in `compose.yaml`, `backend` network, `depends_on … service_healthy` |
-| Containerize with Docker and Docker Compose | `backend/Dockerfile` (non-root user, HEALTHCHECK, entrypoint), `compose.yaml`, named volume `pgdata` |
-| Environment variables for configuration and sensitive settings | `.env` → `env_file:` / `${VAR}`; secrets have no defaults in code; `.env` never committed |
-| Demonstrate the complete application running through Docker Compose | `docker compose up --build` → <http://localhost:8000> |
-| Serializers, CRUD, validation, API client (HW3) | `qa/serializers.py`, viewsets, 55 tests, Postman collection, Swagger |
-| Related models: one-to-one and one-to-many with cascade | `LectureMaterial` and `Answer` (`OneToOneField`), `Topic` (`ForeignKey`), see *Data models* |
-| Automatic topic detection for questions | `qa/tagging.py` (TF-IDF + keywords), `qa/material.py` (topics from uploaded lecture text), `/suggest/`, `/similar/`, `/retag/` |
+| ≥ 3 entities with one-to-one, one-to-many and many-to-many relationships | 7 models in `backend/qa/models.py` + `accounts/models.py`: `LectureMaterial`–`Lecture` and `Answer`–`Question` (**one-to-one**), `Lecture`→`Topic`/`Question`, `User`→`Lecture`/`Question` (**one-to-many**), `Question.upvoters`↔`User` through `Upvote` (**many-to-many**) — see *Data models* |
+| Every table prepopulated with ≥ 10 records | `seed_demo` (runs on start with `SEED_DEMO=1`): 45 users, 10 lectures, 10 materials, 30 topics, 126 questions, 14 answers, ~360 upvotes; the test `test_seed_creates_accounts_and_100_plus_questions_idempotently` asserts ≥ 10 rows per table |
+| Full CRUD for the entities | Lectures, topics, questions: list / create / retrieve / update / delete through viewsets; material and answers through `GET`/`POST`/`PUT`/`DELETE` actions; users through `/api/users/` |
+| ≥ 1 public GET; `POST`/`PUT`/`PATCH`/`DELETE` require authentication | all `GET`s of lectures / topics / questions / stats / docs are public; every write needs a token (`IsAuthenticatedOrReadOnly` default + object permissions) → `401` without one |
+| Signup, login, JWT authentication | `POST /api/auth/register/`, `POST /api/auth/login/`, `/refresh/` (rotation + blacklist), `/logout/` — SimpleJWT, `accounts/api.py` |
+| Frontend with ≥ 2 protected routes: Profile + one REST feature for logged-in users | React: `/me/` (Profile) and `/l/:code/plan/` (topic plan: topics CRUD, material upload, re-tag) under `<RequireAuth />`; `/users/` under `<RequireAuth roles={["admin"]} />` |
+| Display current user, update username, change password | Profile page: header + counters from `GET /api/auth/me/`; *Profile* tab → `PATCH /api/auth/me/` (`username`, names, email; uniqueness → field error); *Security* tab → `POST /api/auth/me/password/` |
+| Handle API errors, loading states, JWT tokens | `frontend/src/api/client.js`: Bearer header, 401 → refresh → retry, error parsing; field errors under inputs, toasts, skeletons / "Loading…", disabled submit buttons |
+| Frontend, backend and database as separate Compose services | `compose.yaml`: `frontend` (nginx + React build), `web` (Django API), `db` (PostgreSQL) on the `backend` network, `depends_on` with the database health check |
+| Setup instructions in README, Postman collection | this file; `postman/RaiseHand.postman_collection.json` (93 requests) + environment |
+| Defense: JWT, protected API endpoints, frontend realization, frontend route protection | *Authentication and authorization*, *Frontend* sections above; `backend/qa/permissions.py`, `frontend/src/auth/RequireAuth.jsx` |
+| Earlier requirements kept: filtering / search / pagination, serializers and validation, Docker best practices, env configuration, automatic tagging | `qa/filters.py`, `qa/serializers.py`, `backend/Dockerfile` (non-root, HEALTHCHECK) and `frontend/Dockerfile` (two-stage), `.env`, `qa/tagging.py` |
 
 ## Project structure
 
@@ -224,8 +253,19 @@ Done in this version: topic plan, automatic tagging, "already asked?" hints, wri
 hw4/
 ├── compose.yaml, .env.example, .gitignore, README.md
 ├── docs/API.md                 # endpoint reference, auth walk-through
-├── postman/                    # collection (89 requests) + environment
-└── backend/
+├── postman/                    # collection (93 requests) + environment
+├── frontend/                   # React single-page app (service `frontend`)
+│   ├── Dockerfile              # stage 1: node → vite build; stage 2: nginx + dist/
+│   ├── nginx.conf              # SPA fallback, /api /docs /health proxied to web:8000
+│   ├── package.json, vite.config.js (dev proxy), index.html
+│   └── src/
+│       ├── main.jsx, App.jsx   # routes: public vs. <RequireAuth> (+ roles)
+│       ├── api/client.js       # fetch + JWT (Bearer, refresh on 401, errors)
+│       ├── auth/               # AuthContext.jsx (useAuth), RequireAuth.jsx (Navigate / Outlet)
+│       ├── components/         # Layout (header, user menu), Questions (cards, tools, filter), Toasts
+│       ├── pages/              # Home, Login, Register, Profile, Users, Lecture, Plan, Screen
+│       ├── hooks.js, utils.js, app.css
+└── backend/                    # Django REST API (service `web`)
     ├── Dockerfile, entrypoint.sh, .dockerignore, requirements.txt, openapi.yaml, manage.py
     ├── config/                 # settings (AUTH_USER_MODEL, REST_FRAMEWORK, SIMPLE_JWT, SPECTACULAR_SETTINGS), urls, wsgi
     ├── accounts/
@@ -235,17 +275,15 @@ hw4/
     │   ├── api.py              # /api/auth/* and /api/users/
     │   └── urls.py
     └── qa/
-        ├── models.py           # Lecture(owner) → Topic, LectureMaterial, Question(author, topic) → Upvote(user), Answer
+        ├── models.py           # Lecture(owner) → Topic, LectureMaterial; Question(author, topic) → Answer; Question ↔ User through Upvote
         ├── serializers.py      # lecture / topic / material / question / answer shapes with can_manage / can_edit / can_answer
         ├── permissions.py      # LecturePermission, TopicPermission, QuestionPermission
-        ├── api.py              # viewsets, actions (topics, material, suggest, similar, retag, summary, export, answer), stats, health, root
+        ├── api.py              # viewsets, actions (topics, material, suggest, similar, retag, join, summary, export, answer), stats, health, root
         ├── tagging.py          # TF-IDF + keyword tagging model, similar questions, re-tagging
         ├── material.py         # lecture text → sections (headings) → topics with keywords; .txt / .md / .pdf
         ├── export.py           # Markdown export of a lecture
-        ├── filters.py, pagination.py, lookup.py, links.py, tunnel.py, views.py, urls.py
-        ├── management/commands/   # wait_for_db.py, seed_demo.py (accounts, topics, tagged questions, answers)
-        ├── migrations/         # 0001 schema, 0002 demo accounts + lecture, 0003 topics/material/answers, 0004 demo topics
-        ├── static/qa/          # app.css (design system, light/dark), app.js (JWT client, rendering, ask assistant)
-        ├── templates/qa/       # base, home, login, register, cabinet, users, lecture, screen, plan
-        └── tests.py            # 55 tests
+        ├── filters.py, pagination.py, lookup.py, links.py, tunnel.py, urls.py
+        ├── management/commands/   # wait_for_db.py, seed_demo.py (accounts, material, topics, tagged questions, answers)
+        ├── migrations/         # 0001 schema, 0002 demo accounts + lecture, 0003 topics/material/answers, 0004 demo topics, 0005 upvoters M2M
+        └── tests.py            # 56 tests
 ```

@@ -68,7 +68,7 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 # Application configuration
 # ---------------------------------------------------------------------------
 
-# Name shown in the page header
+# Name of the service (API title, /health/)
 APP_NAME = os.environ.get("APP_NAME", "Raise Hand")
 
 # Address other devices use to reach this machine, e.g. http://192.168.1.5:8000.
@@ -80,7 +80,19 @@ PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
 # GET <url>/quicktunnel returns the public hostname. Empty = never ask.
 TUNNEL_METRICS_URL = os.environ.get("TUNNEL_METRICS_URL", "http://tunnel:2000").strip()
 
-# How often the pages poll the API for new questions and votes
+# Address of the separate frontend service as the browser sees it (http://localhost:3000 in
+# compose.yaml). Used for the links the API hands out (QR code, projector page) when neither
+# PUBLIC_URL nor the tunnel is set. Empty = derive it from the incoming request.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
+
+# Browsers only let a page call an API on another origin when the API says so (CORS).
+# The React dev server (5173) and the nginx-served build (3000) are listed by default;
+# through the nginx proxy the API is same-origin and CORS is not involved at all.
+CORS_ALLOWED_ORIGINS = env_list(
+    "CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+)
+
+# How often the frontend should poll the API for new questions and votes (reported by /health/)
 REFRESH_SECONDS = max(1, env_int("REFRESH_SECONDS", 3))
 
 # Password of the demo accounts created by the seed migration / seed_demo (never for real users)
@@ -93,7 +105,8 @@ DEMO_PASSWORD = os.environ.get("DEMO_PASSWORD", "Demo12345!")
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",                      # password hashing, validators, AbstractUser
-    "django.contrib.staticfiles",               # CSS/JS of the pages, the browsable API and Swagger UI
+    "django.contrib.staticfiles",               # static files of the admin, the browsable API and Swagger UI
+    "corsheaders",                              # Access-Control-Allow-Origin for the React frontend
     "rest_framework",                           # Django REST Framework: serializers, viewsets, pagination
     "rest_framework_simplejwt.token_blacklist", # refresh tokens are stored so logout/rotation can revoke them
     "django_filters",                           # ?lecture=&is_answered= style filtering
@@ -115,6 +128,7 @@ AUTH_PASSWORD_VALIDATORS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",   # serves collected static files from gunicorn
+    "corsheaders.middleware.CorsMiddleware",        # must come before CommonMiddleware
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -129,8 +143,7 @@ TEMPLATES = [
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
-                "django.template.context_processors.request",
-                "qa.context_processors.app_settings",
+                "django.template.context_processors.request",   # Swagger UI and the browsable API
             ],
         },
     },

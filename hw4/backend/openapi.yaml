@@ -104,7 +104,8 @@ paths:
           description: ''
     patch:
       operationId: auth_me_partial_update
-      description: Change first/last name or email.
+      description: Change username, first/last name or email. The username must stay
+        unique.
       summary: Edit my profile
       tags:
       - auth
@@ -435,6 +436,31 @@ paths:
             text/markdown:
               schema:
                 type: string
+          description: ''
+  /api/lectures/{key}/join/:
+    get:
+      operationId: lectures_join_retrieve
+      description: 'What the projector page shows: the address students open (QR code
+        as inline SVG), the join code and where that address came from — `env` (PUBLIC_URL),
+        `tunnel` (running cloudflared), `frontend` (FRONTEND_URL) or `request` (the
+        address this request came through). `local_only` warns that the address only
+        works on this computer (localhost).'
+      summary: Join link and QR code
+      parameters:
+      - in: path
+        name: key
+        schema:
+          type: string
+        description: Lecture id (`12`) or join code (`KBTU26`, case-insensitive)
+        required: true
+      tags:
+      - lectures
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinInfo'
           description: ''
   /api/lectures/{key}/material/:
     get:
@@ -1629,11 +1655,57 @@ components:
       properties:
         status:
           type: string
+        app:
+          type: string
+        version:
+          type: string
         database:
           type: string
+        refresh_seconds:
+          type: integer
+          description: How often the frontend polls for new questions
       required:
+      - app
       - database
+      - refresh_seconds
       - status
+      - version
+    JoinInfo:
+      type: object
+      properties:
+        code:
+          type: string
+        join_url:
+          type: string
+          format: uri
+          description: Address students open; encoded in the QR code
+        screen_url:
+          type: string
+          format: uri
+          description: Projector page of the frontend
+        source:
+          allOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          description: |-
+            Where join_url came from
+
+            * `env` - env
+            * `tunnel` - tunnel
+            * `frontend` - frontend
+            * `request` - request
+        local_only:
+          type: boolean
+          description: True when the address only works on this computer
+        qr_svg:
+          type: string
+          description: Inline SVG of the QR code (viewBox, no fixed size)
+      required:
+      - code
+      - join_url
+      - local_only
+      - qr_svg
+      - screen_url
+      - source
     Lecture:
       type: object
       description: A lecture as the API shows it. `code`, `owner`, `created_at` and
@@ -2128,6 +2200,13 @@ components:
       type: object
       description: Admins may also change the role and (de)activate accounts.
       properties:
+        username:
+          type: string
+          minLength: 3
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
         email:
           oneOf:
           - type: string
@@ -2152,6 +2231,13 @@ components:
       type: object
       description: 'Full profile: what /api/auth/me/ and the admin user list return.'
       properties:
+        username:
+          type: string
+          minLength: 3
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
         email:
           oneOf:
           - type: string
@@ -2363,6 +2449,18 @@ components:
       required:
       - question
       - similarity
+    SourceEnum:
+      enum:
+      - env
+      - tunnel
+      - frontend
+      - request
+      type: string
+      description: |-
+        * `env` - env
+        * `tunnel` - tunnel
+        * `frontend` - frontend
+        * `request` - request
     Stats:
       type: object
       properties:
@@ -2553,9 +2651,11 @@ components:
           readOnly: true
         username:
           type: string
-          readOnly: true
           description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
             only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+          minLength: 3
         email:
           oneOf:
           - type: string
@@ -2604,7 +2704,6 @@ components:
       - last_login
       - role
       - stats
-      - username
     UserAdmin:
       type: object
       description: Admins may also change the role and (de)activate accounts.
@@ -2614,9 +2713,11 @@ components:
           readOnly: true
         username:
           type: string
-          readOnly: true
           description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
             only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+          minLength: 3
         email:
           oneOf:
           - type: string
@@ -2660,7 +2761,6 @@ components:
       - id
       - last_login
       - stats
-      - username
     UserPublic:
       type: object
       description: How a user appears inside other objects (lecture owner, question

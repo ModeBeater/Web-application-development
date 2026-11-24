@@ -20,3 +20,7 @@ db.sqlite3
 
 # Collected static files (built by entrypoint.sh inside the container)
 staticfiles/
+
+# Frontend build artefacts (the image builds them itself)
+frontend/node_modules/
+frontend/dist/

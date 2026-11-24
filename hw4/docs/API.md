@@ -1,13 +1,13 @@
 # Raise Hand — REST API reference (HW4 / endterm · final: DRF + JWT + topics & tagging)
 
-Base URL: `http://localhost:8000` (the `WEB_PORT` from `.env`).
+Base URL: `http://localhost:8000` (the `WEB_PORT` from `.env`). The React frontend on `http://localhost:3000` calls the same endpoints through its nginx proxy (`/api/…` on its own origin).
 
 | Where | What |
 |---|---|
 | **http://localhost:8000/docs/** | Swagger UI generated from the code (drf-spectacular). Click **Authorize**, paste an access token, and "Try it out" works as that user |
 | `http://localhost:8000/api/schema/` (`?format=json`) | The OpenAPI 3 schema; committed copy: [`backend/openapi.yaml`](../backend/openapi.yaml) |
 | `http://localhost:8000/api/lectures/` in a browser | DRF's browsable API (read-only without a token — the browser has no Bearer header) |
-| [`postman/RaiseHand.postman_collection.json`](../postman/RaiseHand.postman_collection.json) | 89 requests that walk through registration, the token lifecycle, every CRUD operation, every role rule, and the topics / tagging / answers flow |
+| [`postman/RaiseHand.postman_collection.json`](../postman/RaiseHand.postman_collection.json) | 93 requests that walk through registration, the token lifecycle, every CRUD operation, every role rule, and the topics / tagging / answers flow |
 
 ## Authentication (JWT)
 
@@ -42,7 +42,7 @@ Both tokens are signed with `DJANGO_SECRET_KEY` (HMAC-SHA256) and verified witho
 | POST | `/api/auth/refresh/` | `refresh` | 200 `{access, refresh}` | 401 `{"detail": "Token is blacklisted", "code": "token_not_valid"}` |
 | POST | `/api/auth/logout/` 🔒 | `refresh` | 205 (empty) | 400 invalid token |
 | GET | `/api/auth/me/` 🔒 | — | 200 user with `stats` | 401 |
-| PATCH | `/api/auth/me/` 🔒 | `first_name`, `last_name`, `email` (role is read-only) | 200 user | 400 |
+| PATCH | `/api/auth/me/` 🔒 | `username` (unique, ≥ 3 chars), `first_name`, `last_name`, `email` (role is read-only) | 200 user | 400 `{"username": ["A user with that username already exists."]}` |
 | POST | `/api/auth/me/password/` 🔒 | `current_password`, `new_password` | 200 `{access, refresh, user}` (fresh tokens) | 400 |
 
 🔒 = requires `Authorization: Bearer <access>`. Without a token: `401 {"detail": "Authentication credentials were not provided."}`; with an expired or revoked one: `401 {"detail": "Given token not valid for any token type", "code": "token_not_valid", …}`.
@@ -102,6 +102,7 @@ A signed-in user that is not allowed gets `403 {"detail": "Only the lecture owne
 | GET | `/api/lectures/{key}/suggest/?text=` | What the model would tag `text` with: `{topic_id, topic_title, score, threshold, scores[]}` | all |
 | GET | `/api/lectures/{key}/similar/?text=` | Existing questions similar to `text`: `[{question, similarity}]` | all |
 | POST | `/api/lectures/{key}/retag/` | Re-run the model (`?include_manual=true` to redo manual tags) → `{processed, tagged, untagged, topics}` | owner, admin |
+| GET | `/api/lectures/{key}/join/` | `{code, join_url, screen_url, source, local_only, qr_svg}` — what the projector page of the frontend shows; `qr_svg` is an inline SVG with a `viewBox` | all |
 | GET | `/api/lectures/{key}/summary/` | Totals + per-topic breakdown (`topics[]` ends with the `No topic` bucket) | all |
 | GET | `/api/lectures/{key}/export/` | `text/markdown` document: topics → questions → answers | all |
 | **Questions** | | | |
@@ -137,8 +138,8 @@ A signed-in user that is not allowed gets `403 {"detail": "Only the lecture owne
   "topic_count": 3,
   "has_material": false,
   "created_at": "2026-10-29T16:32:46+05:00",
-  "join_url": "http://localhost:8000/l/KBTU26/",
-  "screen_url": "http://localhost:8000/l/KBTU26/screen/",
+  "join_url": "http://localhost:3000/l/KBTU26/",
+  "screen_url": "http://localhost:3000/l/KBTU26/screen/",
   "can_manage": false
 }
 ```
